@@ -3,8 +3,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
 export async function GET(req: NextRequest) {
-  const data = req.nextUrl.searchParams.get('data')
-  if (!data) return NextResponse.json({ error: 'data obrigatória' }, { status: 400 })
+  const data    = req.nextUrl.searchParams.get('data')
+  const jovemId = req.nextUrl.searchParams.get('jovemId')
+
+  // Busca por jovem — retorna todos os registros dele ordenados por data desc
+  if (jovemId) {
+    const { data: registros, error } = await supabase
+      .from('chamada_dia')
+      .select('id, jovem_id, presente, data')
+      .eq('jovem_id', jovemId)
+      .order('data', { ascending: false })
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json(registros ?? [])
+  }
+
+  // Busca por data (comportamento original)
+  if (!data) return NextResponse.json({ error: 'data ou jovemId obrigatório' }, { status: 400 })
 
   const { data: registros, error } = await supabase
     .from('chamada_dia')
@@ -28,7 +43,6 @@ export async function POST(req: NextRequest) {
     presente: presente === true,
   }))
 
-  // Deleta os registros do dia primeiro, depois insere (mais seguro que upsert com constraint)
   const { error: delErr } = await supabase
     .from('chamada_dia')
     .delete()

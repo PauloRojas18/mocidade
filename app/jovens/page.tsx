@@ -10,11 +10,20 @@ type Jovem = {
   id: number; nome: string; email: string | null; telefone: string | null
   ano_entrada: number; curso_atual: string | null; pratica_atual: string | null
 }
-type Curso        = { id: number; nome: string }
-type Pratica      = { id: number; nome: string }
-type PresencaItem = { id: number; presente: boolean; aulas: { curso_nome: string; data: string } | null }
-type FreqJovem    = { total: number; presentes: number; pct: number }
-type PresencaRow  = { jovem_id: number; presente: boolean }
+type Curso     = { id: number; nome: string }
+type Pratica   = { id: number; nome: string }
+type FreqJovem = { total: number; presentes: number; pct: number }
+
+type PresencaRow = {
+  jovem_id:  number
+  total:     number
+  presentes: number
+}
+
+type ChamadaHoje = {
+  jovem_id: number
+  presente: boolean
+}
 
 export default function JovensPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
@@ -26,8 +35,8 @@ export default function JovensPage() {
   const [modal,     setModal]     = useState(false)
   const [salvando,  setSalvando]  = useState(false)
   const [freqMap,   setFreqMap]   = useState<Record<number, FreqJovem>>({})
+  const [hojeMap,   setHojeMap]   = useState<Record<number, boolean>>({})  // presença de hoje
   const [selecionado,      setSelecionado]      = useState<Jovem | null>(null)
-  const [presencasJovem,   setPresencasJovem]   = useState<PresencaItem[]>([])
   const [loadingPresencas, setLoadingPresencas] = useState(false)
   const [sheetAberto,      setSheetAberto]      = useState(false)
 
@@ -40,49 +49,58 @@ export default function JovensPage() {
   const [praticaAtual, setPraticaAtual] = useState('')
   const [erroNome,     setErroNome]     = useState(false)
 
+  // Data local de hoje no formato YYYY-MM-DD
+  const hoje = (() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  })()
+
   useEffect(() => {
     Promise.all([
       fetch('/api/jovens').then(r => r.json()),
       fetch('/api/cursos').then(r => r.json()),
       fetch('/api/praticas').then(r => r.json()),
       fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
-    ]).then(([j, c, p, pres]) => {
+      fetch(`/api/chamada-dia?data=${hoje}`).then(r => r.ok ? r.json() : []),
+    ]).then(([j, c, p, pres, chamadaHoje]) => {
       setJovens(Array.isArray(j) ? j : [])
       setCursos(Array.isArray(c) ? c : [])
       setPraticas(Array.isArray(p) ? p : [])
+
+      // freqMap com totais pré-calculados pela API
       const map: Record<number, FreqJovem> = {}
       if (Array.isArray(pres)) {
         pres.forEach((row: PresencaRow) => {
-          const id = row.jovem_id
-          if (!map[id]) map[id] = { total: 0, presentes: 0, pct: 100 }
-          map[id].total++
-          if (row.presente) map[id].presentes++
-        })
-        Object.keys(map).forEach(id => {
-          const f = map[Number(id)]
-          f.pct = f.total > 0 ? Math.round((f.presentes / f.total) * 100) : 100
+          if (!row.total) return
+          map[row.jovem_id] = {
+            total:     row.total,
+            presentes: row.presentes,
+            pct:       Math.round((row.presentes / row.total) * 100),
+          }
         })
       }
       setFreqMap(map)
+
+      // hojeMap — só quem foi marcado hoje
+      const hm: Record<number, boolean> = {}
+      if (Array.isArray(chamadaHoje)) {
+        chamadaHoje.forEach((r: ChamadaHoje) => { hm[r.jovem_id] = r.presente })
+      }
+      setHojeMap(hm)
+
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+  }, [hoje])
 
-  const selecionarJovem = async (j: Jovem) => {
+  const selecionarJovem = (j: Jovem) => {
     setSelecionado(j)
     setSheetAberto(true)
-    setPresencasJovem([])
-    setLoadingPresencas(true)
-    const res  = await fetch(`/api/presencas/jovem?jovemId=${j.id}`)
-    const data = res.ok ? await res.json() : { aulas: [] }
-    setPresencasJovem(Array.isArray(data) ? data : (data.aulas ?? []))
     setLoadingPresencas(false)
   }
 
   const fecharSheet = () => {
     setSheetAberto(false)
     setSelecionado(null)
-    setPresencasJovem([])
   }
 
   const fecharModal = () => {
@@ -96,7 +114,10 @@ export default function JovensPage() {
     setSalvando(true)
     const res = await fetch('/api/jovens', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome: nome.trim(), email: email || null, telefone: telefone || null, ano_entrada: Number(anoEntrada), curso_atual: cursoAtual || null, pratica_atual: praticaAtual || null }),
+      body: JSON.stringify({
+        nome: nome.trim(), email: email || null, telefone: telefone || null,
+        ano_entrada: Number(anoEntrada), curso_atual: cursoAtual || null, pratica_atual: praticaAtual || null,
+      }),
     })
     if (res.ok) {
       const novo = await res.json() as Jovem
@@ -115,19 +136,15 @@ export default function JovensPage() {
 
   const alertaCount = jovens.filter(j => { const f = freqMap[j.id]; return f && f.total > 0 && f.pct < 75 }).length
 
-  // Dados calculados do selecionado
-  const freqPct   = selecionado ? (freqMap[selecionado.id]?.pct ?? 100) : 100
-  const temAlerta = selecionado ? (freqMap[selecionado.id]?.total ?? 0) > 0 && freqPct < 75 : false
-  const porCurso: Record<string, { total: number; presentes: number }> = {}
-  presencasJovem.forEach(p => {
-    if (!p.aulas) return
-    const n = p.aulas.curso_nome
-    if (!porCurso[n]) porCurso[n] = { total: 0, presentes: 0 }
-    porCurso[n].total++
-    if (p.presente) porCurso[n].presentes++
-  })
+  const freqSel   = selecionado ? freqMap[selecionado.id] : undefined
+  const freqPct   = freqSel?.pct ?? 100
+  const temAlerta = (freqSel?.total ?? 0) > 0 && freqPct < 75
 
-  // JSX do painel de detalhe — inline, sem sub-componente
+  // Presença de hoje do jovem selecionado
+  const presenteHoje = selecionado ? hojeMap[selecionado.id] : undefined
+  const foiRegistradoHoje = selecionado ? selecionado.id in hojeMap : false
+
+  // ── Painel de detalhe ─────────────────────────────────────────────────
   const detalheJSX = selecionado ? (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -142,39 +159,46 @@ export default function JovensPage() {
             <p className="text-xs text-slate-500 mt-0.5">Mocidade desde {selecionado.ano_entrada}</p>
           </div>
         </div>
-        {(freqMap[selecionado.id]?.total ?? 0) > 0 && (
+        {(freqSel?.total ?? 0) > 0 && (
           <div className="flex items-center gap-2">
             <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#E2E8F0' }}>
-              <div className="h-full rounded-full" style={{ background: temAlerta ? '#E24B4A' : '#1D9E75', width: `${freqPct}%` }} />
+              <div className="h-full rounded-full transition-all"
+                style={{ background: temAlerta ? '#E24B4A' : '#1D9E75', width: `${freqPct}%` }} />
             </div>
-            <span className="text-xs font-bold flex-shrink-0" style={{ color: temAlerta ? '#E24B4A' : '#1D9E75' }}>{freqPct}%</span>
+            <span className="text-xs font-bold flex-shrink-0"
+              style={{ color: temAlerta ? '#E24B4A' : '#1D9E75' }}>{freqPct}%</span>
           </div>
         )}
       </div>
 
       {/* Alerta */}
       {temAlerta && (
-        <div className="mx-4 mt-3 px-3 py-2.5 rounded-lg flex-shrink-0" style={{ background: '#FCEBEB', border: '0.5px solid #F09595' }}>
+        <div className="mx-4 mt-3 px-3 py-2.5 rounded-lg flex-shrink-0"
+          style={{ background: '#FCEBEB', border: '0.5px solid #F09595' }}>
           <p className="text-xs font-semibold" style={{ color: '#A32D2D' }}>Atenção — frequência insuficiente</p>
           <p className="text-xs mt-0.5" style={{ color: '#793F3F' }}>{freqPct}% de presença. Mínimo: 75%.</p>
         </div>
       )}
 
-      {/* Corpo */}
       <div className="flex-1 overflow-y-auto">
+        {/* Contato */}
         {(selecionado.email || selecionado.telefone) && (
           <div className="px-4 py-3 border-b border-slate-100 flex flex-col gap-1.5">
             {selecionado.email && (
-              <a href={`mailto:${selecionado.email}`} className="flex items-center gap-2 text-xs" style={{ color: '#4B7BF5', textDecoration: 'none' }}>
+              <a href={`mailto:${selecionado.email}`} className="flex items-center gap-2 text-xs"
+                style={{ color: '#4B7BF5', textDecoration: 'none' }}>
                 <Mail size={11} /><span className="truncate">{selecionado.email}</span>
               </a>
             )}
             {selecionado.telefone && (
-              <span className="flex items-center gap-2 text-xs text-slate-500"><Phone size={11} />{selecionado.telefone}</span>
+              <span className="flex items-center gap-2 text-xs text-slate-500">
+                <Phone size={11} />{selecionado.telefone}
+              </span>
             )}
           </div>
         )}
 
+        {/* Curso / Prática */}
         <div className="px-4 py-3 border-b border-slate-100 grid grid-cols-2 gap-2">
           <div className="rounded-lg p-2.5" style={{ background: '#fff', border: '0.5px solid #E2E8F0' }}>
             <p className="text-xs text-slate-400 mb-0.5">Curso</p>
@@ -186,29 +210,32 @@ export default function JovensPage() {
           </div>
         </div>
 
-        <div className="px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2.5">Histórico</p>
-          {loadingPresencas ? (
-            <p className="text-xs text-slate-400">Carregando...</p>
-          ) : Object.keys(porCurso).length === 0 ? (
-            <p className="text-xs text-slate-400">Nenhuma chamada registrada</p>
+        {/* Presença hoje — só aparece se foi registrado hoje */}
+        <div className="px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Hoje</p>
+          {!foiRegistradoHoje ? (
+            <p className="text-xs text-slate-400">Chamada ainda não realizada hoje.</p>
           ) : (
-            <div className="flex flex-col gap-1">
-              {Object.entries(porCurso).map(([nomeCurso, dados]) => {
-                const pct = Math.round((dados.presentes / dados.total) * 100)
-                return (
-                  <div key={nomeCurso} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
-                    <div className="min-w-0 mr-2">
-                      <p className="text-xs text-slate-800 truncate">{nomeCurso}</p>
-                      <p className="text-xs text-slate-400">{dados.presentes}/{dados.total} aulas</p>
-                    </div>
-                    <span className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: pct < 75 ? '#FCEBEB' : '#EAF3DE', color: pct < 75 ? '#A32D2D' : '#3B6D11' }}>
-                      {pct < 75 ? 'em risco' : 'Presente'}
-                    </span>
-                  </div>
-                )
-              })}
+            <div className="flex items-center gap-3 px-3 py-3 rounded-xl"
+              style={{
+                background: presenteHoje ? '#E1F5EE' : '#FEF2F2',
+                border: `1px solid ${presenteHoje ? '#9FE1CB' : '#FECACA'}`,
+              }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: presenteHoje ? '#1D9E75' : '#E24B4A' }}>
+                {presenteHoje
+                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                }
+              </div>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: presenteHoje ? '#085041' : '#991B1B' }}>
+                  {presenteHoje ? 'Presente hoje' : 'Ausente hoje'}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: presenteHoje ? '#1D9E75' : '#E24B4A' }}>
+                  {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'short' })}
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -233,7 +260,6 @@ export default function JovensPage() {
 
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">
-      {/* Topbar */}
       <div className="flex-shrink-0 px-4 md:px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
         <span className="text-sm font-semibold text-slate-900">Jovens cadastrados</span>
         <div className="flex items-center gap-2">
@@ -249,7 +275,6 @@ export default function JovensPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Lista */}
         <div className="flex-1 flex flex-col overflow-hidden p-3 md:p-4 min-w-0">
           <div className="flex gap-2 mb-3 flex-wrap flex-shrink-0">
             {([
@@ -285,7 +310,9 @@ export default function JovensPage() {
                 <button key={j.id} onClick={() => selecionarJovem(j)} className="w-full text-left">
                   <div className="bg-white rounded-xl p-3 transition-all"
                     style={{
-                      border:       ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
+                      borderTop:    ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
+                      borderRight:  ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
+                      borderBottom: ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
                       borderLeft:   temFalta ? '3px solid #E24B4A' : ativo ? '3px solid #4B7BF5' : '3px solid #E2E8F0',
                       borderRadius: '0 10px 10px 0',
                       background:   ativo ? '#F5F8FF' : '#fff',
@@ -336,7 +363,8 @@ export default function JovensPage() {
         </div>
 
         {/* Painel lateral — desktop only */}
-        <div className="hidden lg:flex flex-col w-72 xl:w-80 border-l border-slate-200 flex-shrink-0 overflow-hidden" style={{ background: '#F8FAFC' }}>
+        <div className="hidden lg:flex flex-col w-72 xl:w-80 border-l border-slate-200 flex-shrink-0 overflow-hidden"
+          style={{ background: '#F8FAFC' }}>
           {selecionado ? detalheJSX : (
             <div className="flex flex-col items-center justify-center h-full px-6 gap-3">
               <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
@@ -356,15 +384,9 @@ export default function JovensPage() {
       {/* Bottom sheet — mobile only */}
       {sheetAberto && selecionado && (
         <>
-          <div
-            className="fixed inset-0 z-40 lg:hidden"
-            style={{ background: 'rgba(15,23,42,0.5)' }}
-            onClick={fecharSheet}
-          />
-          <div
-            className="fixed bottom-0 left-0 right-0 z-50 lg:hidden rounded-t-2xl overflow-hidden flex flex-col"
-            style={{ background: '#F8FAFC', maxHeight: '85vh', boxShadow: '0 -4px 24px rgba(0,0,0,0.18)' }}
-          >
+          <div className="fixed inset-0 z-40 lg:hidden" style={{ background: 'rgba(15,23,42,0.5)' }} onClick={fecharSheet} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden rounded-t-2xl overflow-hidden flex flex-col"
+            style={{ background: '#F8FAFC', maxHeight: '85vh', boxShadow: '0 -4px 24px rgba(0,0,0,0.18)' }}>
             <div className="flex-shrink-0 pt-3 pb-2 px-4 flex flex-col items-center gap-2" style={{ background: '#F8FAFC' }}>
               <div className="w-10 h-1 rounded-full" style={{ background: '#CBD5E1' }} />
               <div className="w-full flex items-center justify-between">
@@ -390,7 +412,9 @@ export default function JovensPage() {
                 <p className="text-sm font-semibold text-slate-900">Cadastrar novo jovem</p>
                 <p className="text-xs text-slate-400 mt-0.5">Preencha os dados abaixo</p>
               </div>
-              <button onClick={fecharModal} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100"><X size={15} /></button>
+              <button onClick={fecharModal} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100">
+                <X size={15} />
+              </button>
             </div>
             <div className="px-5 py-4 flex flex-col gap-4 overflow-y-auto" style={{ maxHeight: '65vh' }}>
               <div>

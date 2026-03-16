@@ -4,15 +4,19 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { Mail, Phone } from 'lucide-react'
+import { Mail, Phone, Pencil, Check, X } from 'lucide-react'
+import { CustomSelect } from '@/components/CustomSelect'
 
 type Jovem = {
   id: number; nome: string; email: string | null; telefone: string | null
   ano_entrada: number; curso_atual: string | null; pratica_atual: string | null
 }
-type TodosJovens  = { id: number; nome: string; curso_atual: string | null }
-type PresencaAula = { id: number; presente: boolean; aulas: { id: number; curso_nome: string; data: string; descricao: string } | null }
+type TodosJovens    = { id: number; nome: string; curso_atual: string | null }
+type PresencaAula   = { id: number; presente: boolean; aulas: { id: number; curso_nome: string; data: string; descricao: string } | null }
 type ChamadaDiaItem = { id: number; presente: boolean; data: string }
+type Curso          = { id: number; nome: string }
+type Pratica        = { id: number; nome: string }
+type FreqRow        = { jovem_id: number; total: number; presentes: number }
 
 export default function JovemPage() {
   const params = useParams()
@@ -22,8 +26,18 @@ export default function JovemPage() {
   const [todosJovens,   setTodosJovens]   = useState<TodosJovens[]>([])
   const [presencas,     setPresencas]     = useState<PresencaAula[]>([])
   const [chamadaDia,    setChamadaDia]    = useState<ChamadaDiaItem[]>([])
+  const [cursos,        setCursos]        = useState<Curso[]>([])
+  const [praticas,      setPraticas]      = useState<Pratica[]>([])
   const [loading,       setLoading]       = useState(true)
   const [naoEncontrado, setNaoEncontrado] = useState(false)
+  // Total global de sábados realizados (vem do /api/presencas/todas)
+  const [totalGlobal,   setTotalGlobal]   = useState(0)
+
+  // Edição inline
+  const [editando,     setEditando]     = useState(false)
+  const [salvandoEdit, setSalvandoEdit] = useState(false)
+  const [cursoEdit,    setCursoEdit]    = useState('')
+  const [praticaEdit,  setPraticaEdit]  = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -31,21 +45,63 @@ export default function JovemPage() {
       fetch(`/api/jovens/${id}`).then(r => r.ok ? r.json() : null),
       fetch('/api/jovens').then(r => r.json()),
       fetch(`/api/presencas/jovem?jovemId=${id}`).then(r => r.ok ? r.json() : { aulas: [], chamadaDia: [] }),
-    ]).then(([j, todos, presData]) => {
+      fetch('/api/cursos').then(r => r.json()),
+      fetch('/api/praticas').then(r => r.json()),
+      fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
+      fetch(`/api/chamada-dia?jovemId=${id}`).then(r => r.ok ? r.json() : []),
+    ]).then(([j, todos, presData, c, p, todasPres, diasJovem]) => {
       if (!j) { setNaoEncontrado(true); setLoading(false); return }
       setJovem(j)
       setTodosJovens(Array.isArray(todos) ? todos : [])
-      // suporta tanto o formato antigo (array) quanto o novo ({ aulas, chamadaDia })
+      setCursos(Array.isArray(c) ? c : [])
+      setPraticas(Array.isArray(p) ? p : [])
+
+      // Presenças em aulas
       if (Array.isArray(presData)) {
         setPresencas(presData)
-        setChamadaDia([])
       } else {
         setPresencas(Array.isArray(presData.aulas) ? presData.aulas : [])
-        setChamadaDia(Array.isArray(presData.chamadaDia) ? presData.chamadaDia : [])
       }
+
+      // Chamada do dia deste jovem (todos os registros)
+      setChamadaDia(Array.isArray(diasJovem) ? diasJovem.sort((a: ChamadaDiaItem, b: ChamadaDiaItem) => b.data.localeCompare(a.data)) : [])
+
+      // Total global de sábados (denominador correto)
+      if (Array.isArray(todasPres)) {
+        const meuRow = todasPres.find((r: FreqRow) => r.jovem_id === Number(id))
+        setTotalGlobal(meuRow?.total ?? 0)
+      }
+
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [id])
+
+  const abrirEdicao = () => {
+    if (!jovem) return
+    setCursoEdit(jovem.curso_atual ?? '')
+    setPraticaEdit(jovem.pratica_atual ?? '')
+    setEditando(true)
+  }
+
+  const cancelarEdicao = () => { setEditando(false); setCursoEdit(''); setPraticaEdit('') }
+
+  const salvarEdicao = async () => {
+    if (!jovem) return
+    setSalvandoEdit(true)
+    const res = await fetch(`/api/jovens/${jovem.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ curso_atual: cursoEdit || null, pratica_atual: praticaEdit || null }),
+    })
+    if (res.ok) {
+      setJovem(await res.json() as Jovem)
+      setEditando(false)
+    } else {
+      const err = await res.json() as { error?: string }
+      alert('Erro ao salvar: ' + (err.error ?? 'tente novamente'))
+    }
+    setSalvandoEdit(false)
+  }
 
   if (loading) return <div className="flex items-center justify-center h-full p-10"><p className="text-sm text-slate-400">Carregando...</p></div>
   if (naoEncontrado || !jovem) return (
@@ -61,21 +117,19 @@ export default function JovemPage() {
   const freqPct    = totalAulas > 0 ? Math.round((presentes / totalAulas) * 100) : 100
   const temAlerta  = totalAulas > 0 && freqPct < 75
 
-  // Agrupa por curso/prática (ambos vão para presencas → aulas)
   const porCurso: Record<string, { nome: string; total: number; presentes: number; tipo: 'curso' | 'pratica' }> = {}
   presencas.forEach(p => {
     if (!p.aulas) return
     const nome = p.aulas.curso_nome
     const tipo: 'curso' | 'pratica' = p.aulas.descricao === 'Chamada de prática' ? 'pratica' : 'curso'
-    if (!porCurso[nome + tipo]) porCurso[nome + tipo] = { nome, total: 0, presentes: 0, tipo }
-    porCurso[nome + tipo].total++
-    if (p.presente) porCurso[nome + tipo].presentes++
+    const key = nome + tipo
+    if (!porCurso[key]) porCurso[key] = { nome, total: 0, presentes: 0, tipo }
+    porCurso[key].total++
+    if (p.presente) porCurso[key].presentes++
   })
 
-  // Stats chamada do dia
-  const totalDia     = chamadaDia.length
+  // Chamada do dia — usa totalGlobal como denominador
   const presentesDia = chamadaDia.filter(c => c.presente).length
-  const freqDiaPct   = totalDia > 0 ? Math.round((presentesDia / totalDia) * 100) : null
 
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">
@@ -154,18 +208,88 @@ export default function JovemPage() {
             </div>
 
             {/* Curso e prática */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-white rounded-xl p-3.5" style={{ border: '0.5px solid #E2E8F0' }}>
-                <p className="text-xs text-slate-400 mb-1">Curso atual</p>
-                <p className="text-sm font-medium text-slate-800">{jovem.curso_atual ?? '—'}</p>
+            <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Curso & Prática</p>
+                {!editando ? (
+                  <button onClick={abrirEdicao}
+                    className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:opacity-80"
+                    style={{ background: '#EEF2FF', color: '#4B7BF5' }}>
+                    <Pencil size={11} strokeWidth={2.5} /> Editar
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={cancelarEdicao}
+                      className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg"
+                      style={{ background: '#F1F5F9', color: '#64748B' }}>
+                      <X size={11} /> Cancelar
+                    </button>
+                    <button onClick={salvarEdicao} disabled={salvandoEdit}
+                      className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:opacity-90"
+                      style={{ background: '#1D9E75', color: '#fff', opacity: salvandoEdit ? 0.7 : 1 }}>
+                      <Check size={11} strokeWidth={2.5} /> {salvandoEdit ? 'Salvando...' : 'Salvar'}
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="bg-white rounded-xl p-3.5" style={{ border: '0.5px solid #E2E8F0' }}>
-                <p className="text-xs text-slate-400 mb-1">Prática atual</p>
-                <p className="text-sm font-medium text-slate-800">{jovem.pratica_atual ?? '—'}</p>
+              <div className="grid grid-cols-2 gap-3 p-4">
+                <div>
+                  <p className="text-xs text-slate-400 mb-1.5">Curso atual</p>
+                  {editando ? (
+                    <CustomSelect value={cursoEdit} onChange={v => setCursoEdit(String(v))} placeholder="Sem curso"
+                      options={cursos.map(c => ({ value: c.nome, label: c.nome }))} />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-800">{jovem.curso_atual ?? '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-1.5">Prática atual</p>
+                  {editando ? (
+                    <CustomSelect value={praticaEdit} onChange={v => setPraticaEdit(String(v))} placeholder="Sem prática"
+                      options={praticas.map(p => ({ value: p.nome, label: p.nome }))} />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-800">{jovem.pratica_atual ?? '—'}</p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Histórico de presenças em aulas (cursos + práticas) */}
+            {/* Chamada do dia — com contador X/totalGlobal */}
+            <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamada do dia</p>
+                {totalGlobal > 0 && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+                    style={{
+                      background: presentesDia / totalGlobal < 0.75 ? '#FCEBEB' : '#E1F5EE',
+                      color:      presentesDia / totalGlobal < 0.75 ? '#A32D2D' : '#085041',
+                    }}>
+                    {presentesDia}/{totalGlobal} dias
+                  </span>
+                )}
+              </div>
+              {chamadaDia.length === 0 && totalGlobal === 0 ? (
+                <div className="px-4 py-6 text-center">
+                  <p className="text-xs text-slate-400">Nenhum registro de chamada do dia</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-50 overflow-y-auto" style={{ maxHeight: 240 }}>
+                  {chamadaDia.map(c => (
+                    <div key={c.id} className="flex items-center justify-between px-4 py-2.5">
+                      <p className="text-xs text-slate-700">
+                        {new Date(c.data + 'T00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                      </p>
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: c.presente ? '#E1F5EE' : '#FEF2F2', color: c.presente ? '#085041' : '#991B1B' }}>
+                        {c.presente ? 'Presente' : 'Ausente'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Presenças em aulas */}
             <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Presenças em aulas</p>
@@ -209,36 +333,6 @@ export default function JovemPage() {
                     </div>
                   )
                 })
-              )}
-            </div>
-
-            {/* Histórico chamada do dia */}
-            <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamada do dia</p>
-                {freqDiaPct !== null && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full"
-                    style={{ background: freqDiaPct < 75 ? '#FCEBEB' : '#E1F5EE', color: freqDiaPct < 75 ? '#A32D2D' : '#085041' }}>
-                    {presentesDia}/{totalDia} dias
-                  </span>
-                )}
-              </div>
-              {chamadaDia.length === 0 ? (
-                <div className="px-4 py-6 text-center"><p className="text-xs text-slate-400">Nenhum registro de chamada do dia</p></div>
-              ) : (
-                <div className="divide-y divide-slate-50 overflow-y-auto" style={{ maxHeight: 200 }}>
-                  {chamadaDia.map(c => (
-                    <div key={c.id} className="flex items-center justify-between px-4 py-2.5">
-                      <p className="text-xs text-slate-700">
-                        {new Date(c.data + 'T00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      </p>
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full"
-                        style={{ background: c.presente ? '#E1F5EE' : '#F1F5F9', color: c.presente ? '#085041' : '#94A3B8' }}>
-                        {c.presente ? 'Presente' : 'Ausente'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
               )}
             </div>
 

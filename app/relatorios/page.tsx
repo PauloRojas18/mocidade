@@ -38,7 +38,7 @@ export default function RelatoriosPage() {
       fetch('/api/jovens').then(r => r.json()),
       fetch('/api/cursos').then(r => r.json()),
       fetch('/api/praticas').then(r => r.json()),
-      fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
+      fetch('/api/presencas/relatorio').then(r => r.ok ? r.json() : []),
     ]).then(([j, c, p, pr]) => {
       setJovens(Array.isArray(j) ? j : [])
       setCursos(Array.isArray(c) ? c : [])

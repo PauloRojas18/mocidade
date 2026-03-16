@@ -175,8 +175,8 @@ export default function JovensPage() {
       {temAlerta && (
         <div className="mx-4 mt-3 px-3 py-2.5 rounded-lg flex-shrink-0"
           style={{ background: '#FCEBEB', border: '0.5px solid #F09595' }}>
-          <p className="text-xs font-semibold" style={{ color: '#A32D2D' }}>Atenção — frequência insuficiente</p>
-          <p className="text-xs mt-0.5" style={{ color: '#793F3F' }}>{freqPct}% de presença. Mínimo: 75%.</p>
+          <p className="text-xs font-semibold" style={{ color: '#A32D2D' }}>Atenção!!</p>
+          <p className="text-xs mt-0.5" style={{ color: '#793F3F' }}>{freqPct}% de presença.</p>
         </div>
       )}
 

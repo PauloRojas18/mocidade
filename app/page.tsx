@@ -7,13 +7,15 @@ import Link from 'next/link'
 type Jovem   = { id: number; nome: string; curso_atual: string | null }
 type Curso   = { id: number; nome: string; matriculados: number }
 type Pratica = { id: number; nome: string; pratica_membros?: { jovem_id: number }[] }
+type FreqRow = { jovem_id: number; total: number; presentes: number }
 type PresRow = { jovem_id: number; presente: boolean; aulas: { curso_nome: string } | null }
 
 export default function DashboardPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
   const [cursos,    setCursos]    = useState<Curso[]>([])
   const [praticas,  setPraticas]  = useState<Pratica[]>([])
-  const [presencas, setPresencas] = useState<PresRow[]>([])
+  const [freqDia,   setFreqDia]   = useState<FreqRow[]>([])   // chamada_dia — alertas/ranking
+  const [presAulas, setPresAulas] = useState<PresRow[]>([])   // aulas — freq por curso
   const [loading,   setLoading]   = useState(true)
 
   useEffect(() => {
@@ -22,11 +24,13 @@ export default function DashboardPage() {
       fetch('/api/cursos').then(r => r.json()),
       fetch('/api/praticas').then(r => r.json()),
       fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
-    ]).then(([j, c, p, pr]) => {
+      fetch('/api/presencas/relatorio').then(r => r.ok ? r.json() : []),
+    ]).then(([j, c, p, fd, pa]) => {
       setJovens(Array.isArray(j) ? j : [])
       setCursos(Array.isArray(c) ? c : [])
       setPraticas(Array.isArray(p) ? p : [])
-      setPresencas(Array.isArray(pr) ? pr : [])
+      setFreqDia(Array.isArray(fd) ? fd : [])
+      setPresAulas(Array.isArray(pa) ? pa : [])
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -37,28 +41,31 @@ export default function DashboardPage() {
     </div>
   )
 
-  // Faltas por jovem
-  const faltasPorJovem: Record<number, number> = {}
-  const aulasPorJovem:  Record<number, number> = {}
-  presencas.forEach(p => {
-    const id = p.jovem_id
-    aulasPorJovem[id]  = (aulasPorJovem[id]  ?? 0) + 1
-    if (!p.presente) faltasPorJovem[id] = (faltasPorJovem[id] ?? 0) + 1
+  // ── Alertas baseados na chamada do dia ────────────────────────────────
+  const freqMap: Record<number, { total: number; presentes: number; pct: number }> = {}
+  freqDia.forEach(r => {
+    if (!r.total) return
+    freqMap[r.jovem_id] = {
+      total:    r.total,
+      presentes: r.presentes,
+      pct:      Math.round((r.presentes / r.total) * 100),
+    }
   })
 
-  const alertas   = jovens.filter(j => (faltasPorJovem[j.id] ?? 0) >= 3)
-  const semFaltas = jovens.filter(j => (aulasPorJovem[j.id] ?? 0) > 0 && (faltasPorJovem[j.id] ?? 0) === 0)
+  const alertas   = jovens.filter(j => freqMap[j.id] && freqMap[j.id].pct < 75)
+  const semFaltas = jovens.filter(j => freqMap[j.id] && freqMap[j.id].pct === 100)
 
-  // Frequência por curso
-  const freqMap: Record<string, { t: number; p: number }> = {}
-  presencas.forEach(p => {
-    const n = p.aulas?.curso_nome; if (!n) return
-    if (!freqMap[n]) freqMap[n] = { t: 0, p: 0 }
-    freqMap[n].t++
-    if (p.presente) freqMap[n].p++
+  // ── Frequência por curso (tabela presencas — aulas) ───────────────────
+  const freqCursoMap: Record<string, { t: number; p: number }> = {}
+  presAulas.forEach(p => {
+    const n = p.aulas?.curso_nome
+    if (!n) return
+    if (!freqCursoMap[n]) freqCursoMap[n] = { t: 0, p: 0 }
+    freqCursoMap[n].t++
+    if (p.presente) freqCursoMap[n].p++
   })
   const freqCursos = cursos
-    .map(c => ({ nome: c.nome, pct: freqMap[c.nome] ? Math.round((freqMap[c.nome].p / freqMap[c.nome].t) * 100) : null }))
+    .map(c => ({ nome: c.nome, pct: freqCursoMap[c.nome] ? Math.round((freqCursoMap[c.nome].p / freqCursoMap[c.nome].t) * 100) : null }))
     .filter(c => c.pct !== null)
 
   const totalMembros = praticas.reduce((a, p) => a + (p.pratica_membros?.length ?? 0), 0)
@@ -70,7 +77,7 @@ export default function DashboardPage() {
       <div className="flex-shrink-0 px-5 md:px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
         <div>
           <h1 className="text-sm font-semibold text-slate-900">Dashboard</h1>
-          <p className="text-xs text-slate-400 mt-0.5">1º semestre / 2026 </p>
+          <p className="text-xs text-slate-400 mt-0.5">1º semestre / 2026</p>
         </div>
         <Link href="/frequencia" className="text-xs font-medium px-3 py-1.5 rounded-lg hover:opacity-90"
           style={{ background: '#4B7BF5', color: '#fff' }}>
@@ -111,7 +118,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl p-4" style={{ border: '0.5px solid #E2E8F0' }}>
             <p className="text-xs text-slate-400 mb-1">Com alertas</p>
             <p className="text-xl font-semibold" style={{ color: '#E24B4A' }}>{alertas.length}</p>
-            <p className="text-xs text-slate-400 mt-1"> faltas</p>
+            <p className="text-xs text-slate-400 mt-1">abaixo de 75%</p>
           </div>
         </div>
 
@@ -125,10 +132,10 @@ export default function DashboardPage() {
             </div>
             {freqCursos.length === 0 ? (
               <div className="px-4 py-6 text-center">
-                <p className="text-xs text-slate-400">Nenhuma chamada registrada ainda</p>
+                <p className="text-xs text-slate-400">Nenhuma chamada de aula ainda</p>
               </div>
             ) : (
-              <div className="p-4 flex flex-col gap-4">
+              <div className="p-4 flex flex-col gap-4 overflow-y-auto" style={{ maxHeight: 240 }}>
                 {freqCursos.map(c => (
                   <div key={c.nome}>
                     <div className="flex justify-between items-center mb-1.5">
@@ -160,27 +167,30 @@ export default function DashboardPage() {
                 <p className="text-xs text-slate-400">Nenhum alerta no momento 🎉</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
-                {alertas.map(j => (
-                  <Link key={j.id} href={`/jovens/${j.id}`}
-                    className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors"
-                    style={{ textDecoration: 'none' }}>
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+              <div className="divide-y divide-slate-100 overflow-y-auto" style={{ maxHeight: 240 }}>
+                {alertas.map(j => {
+                  const f = freqMap[j.id]
+                  return (
+                    <Link key={j.id} href={`/jovens/${j.id}`}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors"
+                      style={{ textDecoration: 'none' }}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                          style={{ background: '#FCEBEB', color: '#A32D2D' }}>
+                          {j.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-800 truncate">{j.nome}</p>
+                          <p className="text-xs text-slate-400 truncate">{j.curso_atual ?? '—'}</p>
+                        </div>
+                      </div>
+                      <span className="text-xs flex-shrink-0 ml-2 px-2 py-0.5 rounded-full font-medium"
                         style={{ background: '#FCEBEB', color: '#A32D2D' }}>
-                        {j.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-800 truncate">{j.nome}</p>
-                        <p className="text-xs text-slate-400 truncate">{j.curso_atual ?? '—'}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs flex-shrink-0 ml-2 px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: '#FCEBEB', color: '#A32D2D' }}>
-                      {faltasPorJovem[j.id]} falta{(faltasPorJovem[j.id] ?? 0) > 1 ? 's' : ''}
-                    </span>
-                  </Link>
-                ))}
+                        {f?.pct ?? 0}%
+                      </span>
+                    </Link>
+                  )
+                })}
               </div>
             )}
           </div>

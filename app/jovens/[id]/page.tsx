@@ -30,10 +30,9 @@ export default function JovemPage() {
   const [praticas,      setPraticas]      = useState<Pratica[]>([])
   const [loading,       setLoading]       = useState(true)
   const [naoEncontrado, setNaoEncontrado] = useState(false)
-  // Total global de sábados realizados (vem do /api/presencas/todas)
   const [totalGlobal,   setTotalGlobal]   = useState(0)
+  const [presentesGlobal, setPresentesGlobal] = useState(0)
 
-  // Edição inline
   const [editando,     setEditando]     = useState(false)
   const [salvandoEdit, setSalvandoEdit] = useState(false)
   const [cursoEdit,    setCursoEdit]    = useState('')
@@ -44,7 +43,7 @@ export default function JovemPage() {
     Promise.all([
       fetch(`/api/jovens/${id}`).then(r => r.ok ? r.json() : null),
       fetch('/api/jovens').then(r => r.json()),
-      fetch(`/api/presencas/jovem?jovemId=${id}`).then(r => r.ok ? r.json() : { aulas: [], chamadaDia: [] }),
+      fetch(`/api/presencas/jovem?jovemId=${id}`).then(r => r.ok ? r.json() : { aulas: [] }),
       fetch('/api/cursos').then(r => r.json()),
       fetch('/api/praticas').then(r => r.json()),
       fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
@@ -56,20 +55,22 @@ export default function JovemPage() {
       setCursos(Array.isArray(c) ? c : [])
       setPraticas(Array.isArray(p) ? p : [])
 
-      // Presenças em aulas
       if (Array.isArray(presData)) {
         setPresencas(presData)
       } else {
         setPresencas(Array.isArray(presData.aulas) ? presData.aulas : [])
       }
 
-      // Chamada do dia deste jovem (todos os registros)
-      setChamadaDia(Array.isArray(diasJovem) ? diasJovem.sort((a: ChamadaDiaItem, b: ChamadaDiaItem) => b.data.localeCompare(a.data)) : [])
+      const dias: ChamadaDiaItem[] = Array.isArray(diasJovem)
+        ? diasJovem.sort((a: ChamadaDiaItem, b: ChamadaDiaItem) => b.data.localeCompare(a.data))
+        : []
+      setChamadaDia(dias)
 
-      // Total global de sábados (denominador correto)
+      // Frequência baseada na chamada do dia (igual à jovens/page.tsx)
       if (Array.isArray(todasPres)) {
         const meuRow = todasPres.find((r: FreqRow) => r.jovem_id === Number(id))
         setTotalGlobal(meuRow?.total ?? 0)
+        setPresentesGlobal(meuRow?.presentes ?? 0)
       }
 
       setLoading(false)
@@ -111,12 +112,14 @@ export default function JovemPage() {
     </div>
   )
 
-  const initials   = jovem.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
-  const totalAulas = presencas.length
-  const presentes  = presencas.filter(p => p.presente).length
-  const freqPct    = totalAulas > 0 ? Math.round((presentes / totalAulas) * 100) : 100
-  const temAlerta  = totalAulas > 0 && freqPct < 75
+  const initials = jovem.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
 
+  // Frequência da chamada do dia — igual à jovens/page.tsx
+  const freqPct   = totalGlobal > 0 ? Math.round((presentesGlobal / totalGlobal) * 100) : 100
+  const temAlerta = totalGlobal > 0 && freqPct < 75
+
+  // Presenças em aulas (para seção separada)
+  const totalAulas = presencas.length
   const porCurso: Record<string, { nome: string; total: number; presentes: number; tipo: 'curso' | 'pratica' }> = {}
   presencas.forEach(p => {
     if (!p.aulas) return
@@ -128,7 +131,6 @@ export default function JovemPage() {
     if (p.presente) porCurso[key].presentes++
   })
 
-  // Chamada do dia — usa totalGlobal como denominador
   const presentesDia = chamadaDia.filter(c => c.presente).length
 
   return (
@@ -172,7 +174,7 @@ export default function JovemPage() {
 
           <div className="p-4 md:p-5 max-w-2xl">
 
-            {/* Header do jovem */}
+            {/* Header do jovem — frequência da chamada do dia */}
             <div className="rounded-xl p-4 md:p-5 mb-4"
               style={{ background: temAlerta ? '#FFF5F5' : '#F0F4FF', border: temAlerta ? '0.5px solid #F7C1C1' : '0.5px solid #B5D4F4' }}>
               <div className="flex items-start gap-3">
@@ -195,13 +197,15 @@ export default function JovemPage() {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-2xl font-semibold" style={{ color: temAlerta ? '#E24B4A' : '#1D9E75' }}>{freqPct}%</p>
+                  <p className="text-2xl font-semibold" style={{ color: temAlerta ? '#E24B4A' : '#1D9E75' }}>
+                    {totalGlobal > 0 ? `${freqPct}%` : '—'}
+                  </p>
                   <p className="text-xs text-slate-400">frequência</p>
                 </div>
               </div>
               {temAlerta && (
                 <div className="mt-3 px-3 py-2.5 rounded-lg" style={{ background: '#FCEBEB', border: '0.5px solid #F7C1C1' }}>
-                  <p className="text-xs font-semibold" style={{ color: '#A32D2D' }}>Índice de frequência baixo — {presentes}/{totalAulas} aulas</p>
+                  <p className="text-xs font-semibold" style={{ color: '#A32D2D' }}>Índice de frequência baixo — {presentesGlobal}/{totalGlobal} dias</p>
                   <p className="text-xs mt-0.5" style={{ color: '#793F3F' }}>Considere entrar em contato com {jovem.nome.split(' ')[0]}.</p>
                 </div>
               )}
@@ -254,7 +258,7 @@ export default function JovemPage() {
               </div>
             </div>
 
-            {/* Chamada do dia — com contador X/totalGlobal */}
+            {/* Chamada do dia */}
             <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Chamada do dia</p>
@@ -268,7 +272,7 @@ export default function JovemPage() {
                   </span>
                 )}
               </div>
-              {chamadaDia.length === 0 && totalGlobal === 0 ? (
+              {chamadaDia.length === 0 ? (
                 <div className="px-4 py-6 text-center">
                   <p className="text-xs text-slate-400">Nenhum registro de chamada do dia</p>
                 </div>
@@ -289,21 +293,13 @@ export default function JovemPage() {
               )}
             </div>
 
-            {/* Presenças em aulas */}
-            <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Presenças em aulas</p>
-                {totalAulas > 0 && (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full"
-                    style={{ background: temAlerta ? '#FCEBEB' : '#E1F5EE', color: temAlerta ? '#A32D2D' : '#085041' }}>
-                    {freqPct}%
-                  </span>
-                )}
-              </div>
-              {Object.values(porCurso).length === 0 ? (
-                <div className="px-4 py-6 text-center"><p className="text-xs text-slate-400">Nenhuma chamada registrada ainda</p></div>
-              ) : (
-                Object.values(porCurso).map((c, i) => {
+            {/* Presenças em aulas — só mostra se houver dados */}
+            {totalAulas > 0 && (
+              <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
+                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Presenças em aulas</p>
+                </div>
+                {Object.values(porCurso).map((c, i) => {
                   const pct = Math.round((c.presentes / c.total) * 100)
                   return (
                     <div key={c.nome + c.tipo} className="px-4 py-2.5"
@@ -332,9 +328,9 @@ export default function JovemPage() {
                       </div>
                     </div>
                   )
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
 
             {/* Ações */}
             <div className="flex gap-2">

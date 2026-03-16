@@ -2,11 +2,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const { id } = await context.params
+type Ctx = { params: Promise<{ id: string }> }
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params
+  const { data, error } = await supabase
+    .from('aulas')
+    .select('*, aula_alunos(jovem_id, jovens(id, nome))')
+    .eq('id', id)
+    .single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 404 })
+  return NextResponse.json(data)
+}
+
+export async function POST(req: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params
   const { jovemId } = await req.json()
   const { error } = await supabase
     .from('aula_alunos')
@@ -15,11 +25,8 @@ export async function POST(
   return NextResponse.json({ ok: true })
 }
 
-export async function DELETE(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
-  const { id } = await context.params
+export async function DELETE(req: NextRequest, ctx: Ctx) {
+  const { id } = await ctx.params
   const body = await req.json().catch(() => ({}))
   const { jovemId } = body
 
@@ -33,7 +40,6 @@ export async function DELETE(
     return NextResponse.json({ ok: true })
   }
 
-  // Deletar aula inteira
   const { error } = await supabase.from('aulas').delete().eq('id', Number(id))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

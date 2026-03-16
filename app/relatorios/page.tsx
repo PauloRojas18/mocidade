@@ -1,6 +1,7 @@
 'use client'
+// LOCALIZAÇÃO: app/relatorios/page.tsx
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
 type Jovem   = { id: number; nome: string; curso_atual: string | null }
@@ -8,12 +9,29 @@ type Curso   = { id: number; nome: string; matriculados: number }
 type Pratica = { id: number; nome: string; pratica_membros?: { jovem_id: number }[] }
 type PresRow = { jovem_id: number; presente: boolean; aulas: { curso_nome: string } | null }
 
+// Tipos para Google Identity Services
+type TokenResponse = { access_token?: string }
+type TokenClient   = { requestAccessToken: () => void }
+type GoogleOAuth2  = { initTokenClient: (cfg: { client_id: string; scope: string; callback: (r: TokenResponse) => void }) => TokenClient }
+type GoogleWindow  = { google: { accounts: { oauth2: GoogleOAuth2 } } }
+
+const GOOGLE_CLIENT_ID = '313358596011-nge26to67475gneepri4ncgf20cm33fi.apps.googleusercontent.com'
+const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive'
+const DRIVE_FOLDER_ID  = '1pYKYHg1KGKEYDbkhO07Ii2ZaCgxjCnSm'
+
 export default function RelatoriosPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
   const [cursos,    setCursos]    = useState<Curso[]>([])
   const [praticas,  setPraticas]  = useState<Pratica[]>([])
   const [presencas, setPresencas] = useState<PresRow[]>([])
   const [loading,   setLoading]   = useState(true)
+
+  // Drive state
+  const [driveToken,    setDriveToken]    = useState<string | null>(null)
+  const [salvandoDrive, setSalvandoDrive] = useState<string | null>(null) // qual export está salvando
+  const [savedDrive,    setSavedDrive]    = useState<Record<string, string>>({}) // nome → link
+  const tokenClientRef   = useRef<TokenClient | null>(null)
+  const pendingExportRef = useRef<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -30,23 +48,177 @@ export default function RelatoriosPage() {
     }).catch(() => setLoading(false))
   }, [])
 
+  // Carrega a Google Identity Services lib
+  useEffect(() => {
+    const script = document.createElement('script')
+    script.src = 'https://accounts.google.com/gsi/client'
+    script.async = true
+    script.onload = () => {
+      const g = (window as unknown as GoogleWindow).google
+      tokenClientRef.current = g.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: (resp: TokenResponse) => {
+          if (resp.access_token) {
+            setDriveToken(resp.access_token)
+            if (pendingExportRef.current) {
+              const tipo = pendingExportRef.current
+              pendingExportRef.current = null
+              salvarNoDrive(tipo, resp.access_token)
+            }
+          }
+        },
+      })
+    }
+    document.body.appendChild(script)
+  }, [])
+
+  // Monta os dados de cada tipo em memória (sem depender das rotas de exportar)
+  const buildCSV = (tipo: string): { csv: string; nome: string } => {
+    if (tipo === 'jovens') {
+      const rows = jovens.map(j => `"${j.nome}","${j.curso_atual ?? ''}"`).join('\n')
+      return { csv: `Nome,Curso\n${rows}`, nome: 'jovens' }
+    }
+    if (tipo === 'cursos') {
+      const linhas: string[] = []
+      cursos.forEach(c => {
+        const alunos = jovens.filter(j => j.curso_atual === c.nome)
+        if (!alunos.length) linhas.push(`"${c.nome}","—"`)
+        else alunos.forEach(a => linhas.push(`"${c.nome}","${a.nome}"`))
+      })
+      return { csv: `Curso,Aluno\n${linhas.join('\n')}`, nome: 'cursos' }
+    }
+    if (tipo === 'praticas') {
+      const linhas: string[] = []
+      praticas.forEach(p => {
+        const membros = p.pratica_membros ?? []
+        if (!membros.length) linhas.push(`"${p.nome}","—"`)
+        else membros.forEach((m: { jovem_id: number }) => {
+          const j = jovens.find(x => x.id === m.jovem_id)
+          linhas.push(`"${p.nome}","${j?.nome ?? ''}"`)
+        })
+      })
+      return { csv: `Prática,Jovem\n${linhas.join('\n')}`, nome: 'praticas' }
+    }
+    // presencas
+    const freqMap: Record<number, { total: number; presentes: number }> = {}
+    presencas.forEach(p => {
+      if (!freqMap[p.jovem_id]) freqMap[p.jovem_id] = { total: 0, presentes: 0 }
+      freqMap[p.jovem_id].total++
+      if (p.presente) freqMap[p.jovem_id].presentes++
+    })
+    const rows = jovens.map(j => {
+      const f = freqMap[j.id]
+      const pct = f ? Math.round((f.presentes / f.total) * 100) : 100
+      return `"${j.nome}","${j.curso_atual ?? ''}","${f?.presentes ?? 0}","${f?.total ?? 0}","${pct}%"`
+    }).join('\n')
+    return { csv: `Nome,Curso,Presenças,Total de Aulas,Frequência\n${rows}`, nome: 'presencas' }
+  }
+
+  const salvarNoDrive = async (tipo: string, token: string) => {
+    setSalvandoDrive(tipo)
+    try {
+      const ano = new Date().getFullYear().toString()
+
+      // 1. Busca se já existe pasta com o ano dentro de secretaria
+      const searchRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name='${ano}' and mimeType='application/vnd.google-apps.folder' and '${DRIVE_FOLDER_ID}' in parents and trashed=false&fields=files(id,name)`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      const searchData = await searchRes.json() as { files: { id: string; name: string }[] }
+
+      let pastaAnoId: string
+
+      if (searchData.files.length > 0) {
+        // Pasta do ano já existe
+        pastaAnoId = searchData.files[0].id
+      } else {
+        // 2. Cria a pasta do ano dentro de secretaria
+        const criarRes = await fetch(
+          'https://www.googleapis.com/drive/v3/files?fields=id',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: ano,
+              mimeType: 'application/vnd.google-apps.folder',
+              parents: [DRIVE_FOLDER_ID],
+            }),
+          }
+        )
+        const criarData = await criarRes.json() as { id: string }
+        pastaAnoId = criarData.id
+      }
+
+      // 3. Salva o arquivo dentro da pasta do ano
+      const { csv, nome } = buildCSV(tipo)
+      const nomeArquivo = `mocidade_${nome}_${new Date().toISOString().split('T')[0]}.csv`
+      const boundary = '-------mocidade_boundary'
+      const metadata = JSON.stringify({
+        name: nomeArquivo,
+        mimeType: 'text/csv',
+        parents: [pastaAnoId],
+      })
+      const body = [
+        `--${boundary}`,
+        'Content-Type: application/json; charset=UTF-8',
+        '',
+        metadata,
+        `--${boundary}`,
+        'Content-Type: text/csv',
+        '',
+        csv,
+        `--${boundary}--`,
+      ].join('\r\n')
+
+      const res = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': `multipart/related; boundary=${boundary}`,
+          },
+          body,
+        }
+      )
+
+      if (res.ok) {
+        const data = await res.json() as { id: string; webViewLink: string }
+        setSavedDrive(prev => ({ ...prev, [tipo]: data.webViewLink }))
+      } else {
+        const err = await res.json() as { error?: { message?: string } }
+        if (res.status === 401) {
+          setDriveToken(null)
+          pendingExportRef.current = tipo
+          tokenClientRef.current?.requestAccessToken()
+        } else {
+          alert('Erro ao salvar no Drive: ' + (err.error?.message ?? 'tente novamente'))
+        }
+      }
+    } finally {
+      setSalvandoDrive(null)
+    }
+  }
+
+  const handleSalvarDrive = (tipo: string) => {
+    if (driveToken) {
+      salvarNoDrive(tipo, driveToken)
+    } else {
+      pendingExportRef.current = tipo
+      tokenClientRef.current?.requestAccessToken()
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-full p-10">
       <p className="text-sm text-slate-400">Carregando relatórios...</p>
     </div>
   )
 
-  // Faltas e aulas por jovem
-  const faltasPorJovem: Record<number, number> = {}
-  const aulasPorJovem:  Record<number, number> = {}
-  presencas.forEach(p => {
-    const id = p.jovem_id
-    aulasPorJovem[id]  = (aulasPorJovem[id]  ?? 0) + 1
-    if (!p.presente) faltasPorJovem[id] = (faltasPorJovem[id] ?? 0) + 1
-  })
-
-  const alertas    = jovens.filter(j => (faltasPorJovem[j.id] ?? 0) >= 3)
-  const semFaltas  = jovens.filter(j => (aulasPorJovem[j.id] ?? 0) > 0 && (faltasPorJovem[j.id] ?? 0) === 0)
   const totalMembros = praticas.reduce((a, p) => a + (p.pratica_membros?.length ?? 0), 0)
 
   // Frequência por curso
@@ -57,35 +229,35 @@ export default function RelatoriosPage() {
     freqMap[n].t++
     if (p.presente) freqMap[n].p++
   })
-  const freqCursos = cursos.map(c => ({
-    id:  c.id,
-    nome: c.nome,
-    pct:  freqMap[c.nome] ? Math.round((freqMap[c.nome].p / freqMap[c.nome].t) * 100) : null,
-  }))
 
-  // Ranking de frequência por jovem
+  // Ranking
+  const faltasPorJovem: Record<number, number> = {}
+  const aulasPorJovem:  Record<number, number> = {}
+  presencas.forEach(p => {
+    aulasPorJovem[p.jovem_id]  = (aulasPorJovem[p.jovem_id]  ?? 0) + 1
+    if (!p.presente) faltasPorJovem[p.jovem_id] = (faltasPorJovem[p.jovem_id] ?? 0) + 1
+  })
   const ranking = jovens
     .map(j => {
-      const total     = aulasPorJovem[j.id]  ?? 0
-      const faltas    = faltasPorJovem[j.id] ?? 0
-      const presentes = total - faltas
-      const pct = total > 0 ? Math.round((presentes / total) * 100) : 100
+      const total   = aulasPorJovem[j.id]  ?? 0
+      const faltas  = faltasPorJovem[j.id] ?? 0
+      const pct     = total > 0 ? Math.round(((total - faltas) / total) * 100) : 100
       return { ...j, pct, faltas }
     })
     .sort((a, b) => b.pct - a.pct)
 
   const exportacoes = [
-    { titulo: 'Lista de jovens',     descricao: `${jovens.length} jovens cadastrados`,              href: '/api/exportar/jovens',    cor: '#4B7BF5', bg: '#EEF2FF' },
-    { titulo: 'Lista por curso',      descricao: `${cursos.length} cursos`,                         href: '/api/exportar/cursos',    cor: '#1D9E75', bg: '#E1F5EE' },
-    { titulo: 'Lista por prática',    descricao: `${praticas.length} práticas · ${totalMembros} jovens`, href: '/api/exportar/praticas', cor: '#D4537E', bg: '#FBEAF0' },
-    { titulo: 'Chamadas registradas', descricao: 'Frequência por aluno e aula',                     href: '/api/exportar/presencas', cor: '#BA7517', bg: '#FAEEDA' },
+    { tipo: 'jovens',    titulo: 'Lista de jovens',     descricao: `${jovens.length} jovens`,           href: '/api/exportar/jovens',    cor: '#4B7BF5', bg: '#EEF2FF' },
+    { tipo: 'cursos',    titulo: 'Lista por curso',      descricao: `${cursos.length} cursos`,           href: '/api/exportar/cursos',    cor: '#1D9E75', bg: '#E1F5EE' },
+    { tipo: 'praticas',  titulo: 'Lista por prática',    descricao: `${praticas.length} práticas`,       href: '/api/exportar/praticas',  cor: '#D4537E', bg: '#FBEAF0' },
+    { tipo: 'presencas', titulo: 'Frequência completa',  descricao: 'Presenças por aluno',               href: '/api/exportar/presencas', cor: '#BA7517', bg: '#FAEEDA' },
   ]
 
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">
       <div className="flex-shrink-0 px-4 md:px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
         <span className="text-sm font-semibold text-slate-900">Relatórios</span>
-        <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: '#EEF2FF', color: '#4B7BF5' }}>1º sem / 2026</span>
+        <span className="text-xs font-medium px-2.5 py-1 rounded-full" style={{ background: '#EEF2FF', color: '#4B7BF5' }}>1º sem / 2025</span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-5">
@@ -94,8 +266,8 @@ export default function RelatoriosPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           {[
             { label: 'Total de jovens',  value: jovens.length,    color: '#4B7BF5' },
-            { label: 'Frequência plena', value: semFaltas.length,  color: '#1D9E75' },
-            { label: 'Com alertas',      value: alertas.length,   color: '#E24B4A' },
+            { label: 'Cursos ativos',    value: cursos.length,    color: '#7F77DD' },
+            { label: 'Práticas',         value: praticas.length,  color: '#D4537E' },
             { label: 'Membros práticas', value: totalMembros,     color: '#BA7517' },
           ].map(c => (
             <div key={c.label} className="bg-white rounded-xl p-4" style={{ border: '0.5px solid #E2E8F0' }}>
@@ -111,58 +283,109 @@ export default function RelatoriosPage() {
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Exportar listas</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {exportacoes.map(e => (
-              <a key={e.titulo} href={e.href} target="_blank" rel="noreferrer"
-                className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-xl hover:shadow-sm transition-all"
-                style={{ border: '0.5px solid #E2E8F0', textDecoration: 'none' }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: e.bg }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={e.cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                    <polyline points="7 10 12 15 17 10"/>
-                    <line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
+              <div key={e.tipo} className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid #E2E8F0' }}>
+                {/* Linha principal */}
+                <div className="flex items-center gap-3 px-4 py-3.5">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: e.bg }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={e.cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="7 10 12 15 17 10"/>
+                      <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-800">{e.titulo}</p>
+                    <p className="text-xs text-slate-400">{e.descricao}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-800 truncate">{e.titulo}</p>
-                  <p className="text-xs text-slate-400 truncate">{e.descricao}</p>
+
+                {/* Botões de ação */}
+                <div className="flex border-t border-slate-100 divide-x divide-slate-100">
+                  {/* Baixar Excel */}
+                  <a href={e.href} target="_blank" rel="noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium hover:bg-slate-50 transition-colors"
+                    style={{ color: '#64748B', textDecoration: 'none' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Baixar Excel
+                  </a>
+
+                  {/* Salvar no Drive */}
+                  {savedDrive[e.tipo] ? (
+                    <a href={savedDrive[e.tipo]} target="_blank" rel="noreferrer"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium hover:opacity-80 transition-colors"
+                      style={{ color: '#1D9E75', textDecoration: 'none', background: '#F0FBF6' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      Abrir no Drive
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => handleSalvarDrive(e.tipo)}
+                      disabled={salvandoDrive === e.tipo}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium hover:bg-slate-50 transition-colors"
+                      style={{ color: salvandoDrive === e.tipo ? '#94A3B8' : '#4B7BF5' }}>
+                      {salvandoDrive === e.tipo ? (
+                        <>
+                          <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                          Salvando...
+                        </>
+                      ) : (
+                        <>
+                          {/* Google Drive icon */}
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 19h20L12 2z"/><path d="M2 19h20"/><path d="M12 2l5 17"/></svg>
+                          Salvar no Drive
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
-                <svg className="flex-shrink-0 ml-auto" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="2">
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
-              </a>
+
+                {/* Link do Drive após salvar */}
+                {savedDrive[e.tipo] && (
+                  <div className="px-4 py-2 border-t border-slate-50" style={{ background: '#F0FBF6' }}>
+                    <p className="text-xs text-slate-500 truncate">
+                      ✓ Salvo em <strong>secretaria / {new Date().getFullYear()}</strong> — <a href={savedDrive[e.tipo]} target="_blank" rel="noreferrer" style={{ color: '#1D9E75' }}>abrir arquivo</a>
+                    </p>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
           {/* Frequência por curso */}
           <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid #E2E8F0' }}>
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-800">Frequência por curso</p>
               <Link href="/cursos" className="text-xs" style={{ color: '#4B7BF5' }}>Ver cursos</Link>
             </div>
-            {freqCursos.filter(c => c.pct !== null).length === 0 ? (
-              <div className="px-4 py-6 text-center"><p className="text-xs text-slate-400">Nenhuma chamada registrada ainda</p></div>
+            {Object.keys(freqMap).length === 0 ? (
+              <div className="px-4 py-6 text-center"><p className="text-xs text-slate-400">Nenhuma chamada ainda</p></div>
             ) : (
               <div className="p-4 flex flex-col gap-4">
-                {freqCursos.map(c => c.pct !== null && (
-                  <div key={c.id}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-xs text-slate-700 truncate mr-2">{c.nome}</span>
-                      <span className="text-xs font-semibold flex-shrink-0"
-                        style={{ color: (c.pct ?? 0) >= 75 ? '#1D9E75' : '#E24B4A' }}>{c.pct}%</span>
+                {cursos.map(c => {
+                  const f = freqMap[c.nome]
+                  if (!f) return null
+                  const pct = Math.round((f.p / f.t) * 100)
+                  return (
+                    <div key={c.id}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-xs text-slate-700 truncate mr-2">{c.nome}</span>
+                        <span className="text-xs font-semibold flex-shrink-0"
+                          style={{ color: pct >= 75 ? '#1D9E75' : '#E24B4A' }}>{pct}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
+                        <div className="h-full rounded-full"
+                          style={{ background: pct >= 75 ? '#1D9E75' : '#E24B4A', width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
-                      <div className="h-full rounded-full"
-                        style={{ background: (c.pct ?? 0) >= 75 ? '#1D9E75' : '#E24B4A', width: `${c.pct}%` }} />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
 
-          {/* Ranking de frequência */}
+          {/* Ranking */}
           <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid #E2E8F0' }}>
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-800">Ranking de frequência</p>
@@ -196,7 +419,6 @@ export default function RelatoriosPage() {
               </div>
             )}
           </div>
-
         </div>
       </div>
     </div>

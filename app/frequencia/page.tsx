@@ -17,7 +17,7 @@ type ChamadaItem = { jovem_id: number; presente: boolean }
 
 const COLORS = [
   { header: '#4B7BF5', light: '#EEF2FF', text: '#185FA5', pill: '#B5D4F4' },
-  { header: '#2a1cbe', light: '#EEEDFE', text: '#3C3489', pill: '#CECBF6' },
+  { header: '#594de1', light: '#EEEDFE', text: '#3C3489', pill: '#CECBF6' },
   { header: '#1D9E75', light: '#E1F5EE', text: '#085041', pill: '#9FE1CB' },
   { header: '#BA7517', light: '#FAEEDA', text: '#633806', pill: '#FAC775' },
   { header: '#D4537E', light: '#FBEAF0', text: '#72243E', pill: '#F4C0D1' },

@@ -3,17 +3,21 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Check, Plus, X, ArrowLeft } from 'lucide-react'
+import { CustomSelect } from '@/components/CustomSelect'
 
 type Tab    = 'cursos' | 'praticas' | 'dia'
 type View   = 'lista'  | 'chamada'
 type Jovem  = { id: number; nome: string }
 type Curso  = { id: number; nome: string; color_idx: number }
-type Pratica = { id: number; nome: string; descricao: string | null; pratica_membros?: { jovem_id: number; jovens: Jovem }[] }
+type Pratica = { id: number; nome: string; descricao: string | null; pratica_membros?: PraticaMembro[] }
+type PraticaMembro = { jovem_id: number; jovens: Jovem | null }
 type Aula   = { id: number; cursoNome: string; data: string; descricao: string; colorIdx: number; alunos: Jovem[] }
+
+type ChamadaItem = { jovem_id: number; presente: boolean }
 
 const COLORS = [
   { header: '#4B7BF5', light: '#EEF2FF', text: '#185FA5', pill: '#B5D4F4' },
-  { header: '#7F77DD', light: '#EEEDFE', text: '#3C3489', pill: '#CECBF6' },
+  { header: '#2a1cbe', light: '#EEEDFE', text: '#3C3489', pill: '#CECBF6' },
   { header: '#1D9E75', light: '#E1F5EE', text: '#085041', pill: '#9FE1CB' },
   { header: '#BA7517', light: '#FAEEDA', text: '#633806', pill: '#FAC775' },
   { header: '#D4537E', light: '#FBEAF0', text: '#72243E', pill: '#F4C0D1' },
@@ -21,6 +25,7 @@ const COLORS = [
 ]
 const PRATICA_COLORS = [
   { header: '#D4537E', light: '#FBEAF0', text: '#72243E', pill: '#F4C0D1' },
+  { header: '#1D9E75', light: '#E1F5EE', text: '#085041', pill: '#9FE1CB' },
   { header: '#BA7517', light: '#FAEEDA', text: '#633806', pill: '#FAC775' },
 ]
 
@@ -61,7 +66,6 @@ export default function FrequenciaPage() {
   const [chamadaDia,  setChamadaDia]  = useState<{ id: number; nome: string; presente: boolean }[]>([])
   const [salvouDia,   setSalvouDia]   = useState(false)
   const [dataHoje] = useState(() => new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }))
-  // Usa data local (não UTC) para evitar problema de timezone
   const hoje = useState(() => {
     const d = new Date()
     const y = d.getFullYear()
@@ -86,22 +90,22 @@ export default function FrequenciaPage() {
     const mp: Record<number, Jovem[]> = {}
     if (Array.isArray(praticasRes)) {
       praticasRes.forEach((p: Pratica) => {
-        mp[p.id] = p.pratica_membros?.map((m: any) => m.jovens).filter(Boolean) ?? []
+        mp[p.id] = p.pratica_membros?.map((m: PraticaMembro) => m.jovens).filter((j): j is Jovem => j !== null) ?? []
       })
     }
     setMembrosPratica(mp)
 
-    const jovensArr = Array.isArray(jovensRes) ? jovensRes : []
-    const chamadaArr = Array.isArray(chamadaRes) ? chamadaRes : []
+    const jovensArr: Jovem[] = Array.isArray(jovensRes) ? jovensRes : []
+    const chamadaArr: ChamadaItem[] = Array.isArray(chamadaRes) ? chamadaRes : []
     setChamadaDia(jovensArr.map((j: Jovem) => ({
       id:       j.id,
       nome:     j.nome,
-      presente: chamadaArr.find((c: any) => c.jovem_id === j.id)?.presente ?? false,
+      presente: chamadaArr.find((c: ChamadaItem) => c.jovem_id === j.id)?.presente ?? false,
     })))
     setLoading(false)
   }, [hoje])
 
-  useEffect(() => { carregarDados() }, [carregarDados])
+  useEffect(() => { void (async () => { await carregarDados() })() }, [carregarDados])
 
   // ── Helpers cursos ──────────────────────────────────────────────────────
   const abrirChamada = (aula: Aula) => {
@@ -129,7 +133,7 @@ export default function FrequenciaPage() {
       setSalvou(true)
       setTimeout(() => { setView('lista'); setAulaAtiva(null) }, 1400)
     } else {
-      const err = await res.json()
+      const err = await res.json() as { error?: string }
       alert('Erro ao salvar: ' + (err.error ?? 'tente novamente'))
     }
   }
@@ -142,7 +146,7 @@ export default function FrequenciaPage() {
       body: JSON.stringify({ cursoNome: cursoSel.nome, data: novaData, descricao: novoDesc || 'Aula', colorIdx: cursoSel.color_idx ?? (aulas.length % COLORS.length), alunoIds: alunosSel }),
     })
     if (res.ok) {
-      const atualizado = await fetch('/api/aulas').then(r => r.json())
+      const atualizado: Aula[] = await fetch('/api/aulas').then(r => r.json())
       setAulas(Array.isArray(atualizado) ? atualizado : [])
     }
     setNovoCursoId(''); setNovaData(''); setNovoDesc(''); setAlunosSel([]); setCriando(false)
@@ -189,11 +193,13 @@ export default function FrequenciaPage() {
       body: JSON.stringify({ nome: nomePratica.trim(), descricao: descPratica.trim() || null }),
     })
     if (res.ok) {
-      const atualizado = await fetch('/api/praticas').then(r => r.json())
+      const atualizado: Pratica[] = await fetch('/api/praticas').then(r => r.json())
       if (Array.isArray(atualizado)) {
         setPraticas(atualizado)
         const mp: Record<number, Jovem[]> = {}
-        atualizado.forEach((p: Pratica) => { mp[p.id] = p.pratica_membros?.map((m: any) => m.jovens).filter(Boolean) ?? [] })
+        atualizado.forEach((p: Pratica) => {
+          mp[p.id] = p.pratica_membros?.map((m: PraticaMembro) => m.jovens).filter((j): j is Jovem => j !== null) ?? []
+        })
         setMembrosPratica(mp)
       }
     }
@@ -201,15 +207,6 @@ export default function FrequenciaPage() {
   }
 
   const presentesDia = chamadaDia.filter(j => j.presente).length
-
-  const recarregarChamadaDia = async () => {
-    const res = await fetch(`/api/chamada-dia?data=${hoje}`)
-    const chamadaArr = res.ok ? await res.json() : []
-    setChamadaDia(prev => prev.map(j => ({
-      ...j,
-      presente: (Array.isArray(chamadaArr) ? chamadaArr : []).find((c: any) => c.jovem_id === j.id)?.presente ?? false,
-    })))
-  }
 
   if (loading) return <div className="flex items-center justify-center h-full p-10"><p className="text-sm text-slate-400">Carregando...</p></div>
 
@@ -329,7 +326,7 @@ export default function FrequenciaPage() {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
                         style={{ background: presente ? c.header : '#F1F5F9', color: presente ? '#fff' : '#64748B' }}>
-                        {m.nome.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                        {m.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                       </div>
                       <div>
                         <p className="text-sm font-semibold" style={{ color: presente ? c.text : '#1A2340' }}>{m.nome}</p>
@@ -351,20 +348,19 @@ export default function FrequenciaPage() {
                 disabled={salvandoP}
                 onClick={async () => {
                   setSalvandoP(true)
-                  // Cria uma aula virtual para esta prática + data de hoje
-                  const hoje = new Date().toISOString().split('T')[0]
+                  const dataHojeISO = new Date().toISOString().split('T')[0]
                   const aulaRes = await fetch('/api/aulas', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       cursoNome: aulaAtivaP.nome,
-                      data:      hoje,
+                      data:      dataHojeISO,
                       descricao: 'Chamada de prática',
                       colorIdx:  praticas.findIndex(p => p.id === aulaAtivaP.id) % PRATICA_COLORS.length + 4,
                       alunoIds:  membros.map(m => m.id),
                     }),
                   })
                   if (aulaRes.ok) {
-                    const aula = await aulaRes.json()
+                    const aula = await aulaRes.json() as { id: number }
                     await fetch('/api/presencas', {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -436,11 +432,12 @@ export default function FrequenciaPage() {
                       {cursos.length === 0 ? (
                         <p className="text-xs text-slate-400 py-2">Nenhum curso cadastrado. Crie um curso primeiro na página <strong>Cursos</strong>.</p>
                       ) : (
-                        <select value={novoCursoId} onChange={e => setNovoCursoId(Number(e.target.value))}
-                          className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-400" style={{ color: '#1A2340' }}>
-                          <option value="">Selecione um curso...</option>
-                          {cursos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                        </select>
+                        <CustomSelect
+                          value={novoCursoId}
+                          onChange={v => setNovoCursoId(v === '' ? '' : Number(v))}
+                          placeholder="Selecione um curso..."
+                          options={cursos.map(c => ({ value: c.id, label: c.nome }))}
+                        />
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -467,7 +464,7 @@ export default function FrequenciaPage() {
                               <div className="flex items-center gap-2.5">
                                 <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold"
                                   style={{ background: sel ? '#4B7BF5' : '#E2E8F0', color: sel ? '#fff' : '#64748B' }}>
-                                  {j.nome.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                                  {j.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                                 </div>
                                 {j.nome}
                               </div>
@@ -620,7 +617,7 @@ export default function FrequenciaPage() {
         {aba === 'dia' && (
           <div className="max-w-lg mx-auto">
             <div className="rounded-2xl overflow-hidden mb-4" style={{ border: '0.5px solid #B5D4F4' }}>
-              <div className="px-5 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #4B7BF5 0%, #7F77DD 100%)' }}>
+              <div className="px-5 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #4B7BF5 0%, #2a1cbe 100%)' }}>
                 <div>
                   <p className="text-sm font-semibold text-white capitalize">{dataHoje}</p>
                   <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.7)' }}>Chamada geral do dia</p>
@@ -662,7 +659,7 @@ export default function FrequenciaPage() {
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all"
                       style={{ background: jovem.presente ? '#4B7BF5' : '#F1F5F9', color: jovem.presente ? '#fff' : '#64748B' }}>
-                      {jovem.nome.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                      {jovem.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                     </div>
                     <p className="text-sm font-medium" style={{ color: jovem.presente ? '#185FA5' : '#1A2340' }}>{jovem.nome}</p>
                   </div>
@@ -684,17 +681,16 @@ export default function FrequenciaPage() {
                     body: JSON.stringify({ data: hoje, presencas: chamadaDia.map(j => ({ jovemId: j.id, presente: j.presente })) }),
                   })
                   if (res.ok) {
-                    // Reseta todos para desmarcado — a chamada foi registrada
                     setChamadaDia(prev => prev.map(j => ({ ...j, presente: false })))
                     setSalvouDia(true)
                     setTimeout(() => setSalvouDia(false), 2500)
                   } else {
-                    const err = await res.json()
+                    const err = await res.json() as { error?: string }
                     alert('Erro ao salvar: ' + (err.error ?? 'tente novamente'))
                   }
                 }}
                 className="w-full py-3.5 rounded-2xl text-white text-sm font-semibold hover:opacity-90"
-                style={{ background: 'linear-gradient(135deg, #4B7BF5, #7F77DD)' }}>
+                style={{ background: 'linear-gradient(135deg, #4B7BF5, #2a1cbe)' }}>
                 Salvar chamada · {presentesDia} presente{presentesDia !== 1 ? 's' : ''}
               </button>
             )}
@@ -702,7 +698,7 @@ export default function FrequenciaPage() {
         )}
       </div>
 
-      {/* Modal Nova Prática (dentro da página de frequência) */}
+      {/* Modal Nova Prática */}
       {criandoPratica && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(15,23,42,0.45)' }}

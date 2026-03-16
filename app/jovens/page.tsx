@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, X, User, Mail, Phone, ExternalLink } from 'lucide-react'
+import { CustomSelect } from '@/components/CustomSelect'
 
 type Jovem = {
   id: number; nome: string; email: string | null; telefone: string | null
@@ -13,6 +14,7 @@ type Curso        = { id: number; nome: string }
 type Pratica      = { id: number; nome: string }
 type PresencaItem = { id: number; presente: boolean; aulas: { curso_nome: string; data: string } | null }
 type FreqJovem    = { total: number; presentes: number; pct: number }
+type PresencaRow  = { jovem_id: number; presente: boolean }
 
 export default function JovensPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
@@ -50,7 +52,7 @@ export default function JovensPage() {
       setPraticas(Array.isArray(p) ? p : [])
       const map: Record<number, FreqJovem> = {}
       if (Array.isArray(pres)) {
-        pres.forEach((row: any) => {
+        pres.forEach((row: PresencaRow) => {
           const id = row.jovem_id
           if (!map[id]) map[id] = { total: 0, presentes: 0, pct: 100 }
           map[id].total++
@@ -97,11 +99,11 @@ export default function JovensPage() {
       body: JSON.stringify({ nome: nome.trim(), email: email || null, telefone: telefone || null, ano_entrada: Number(anoEntrada), curso_atual: cursoAtual || null, pratica_atual: praticaAtual || null }),
     })
     if (res.ok) {
-      const novo = await res.json()
+      const novo = await res.json() as Jovem
       setJovens(prev => [...prev, novo].sort((a, b) => a.nome.localeCompare(b.nome)))
       fecharModal()
     } else {
-      const err = await res.json()
+      const err = await res.json() as { error?: string }
       alert('Erro: ' + (err.error ?? 'Falha ao salvar'))
     }
     setSalvando(false)
@@ -363,7 +365,6 @@ export default function JovensPage() {
             className="fixed bottom-0 left-0 right-0 z-50 lg:hidden rounded-t-2xl overflow-hidden flex flex-col"
             style={{ background: '#F8FAFC', maxHeight: '85vh', boxShadow: '0 -4px 24px rgba(0,0,0,0.18)' }}
           >
-            {/* Handle */}
             <div className="flex-shrink-0 pt-3 pb-2 px-4 flex flex-col items-center gap-2" style={{ background: '#F8FAFC' }}>
               <div className="w-10 h-1 rounded-full" style={{ background: '#CBD5E1' }} />
               <div className="w-full flex items-center justify-between">
@@ -418,19 +419,21 @@ export default function JovensPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-700 mb-1.5 block">Curso atual</label>
-                <select value={cursoAtual} onChange={e => setCursoAtual(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none" style={{ color: '#1A2340' }}>
-                  <option value="">Sem curso</option>
-                  {cursos.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
-                </select>
+                <CustomSelect
+                  value={cursoAtual}
+                  onChange={v => setCursoAtual(String(v))}
+                  placeholder="Sem curso"
+                  options={cursos.map(c => ({ value: c.nome, label: c.nome }))}
+                />
               </div>
-              <div> ok
+              <div>
                 <label className="text-xs font-medium text-slate-700 mb-1.5 block">Prática</label>
-                <select value={praticaAtual} onChange={e => setPraticaAtual(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none" style={{ color: '#1A2340' }}>
-                  <option value="">Sem prática</option>
-                  {praticas.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
-                </select>
+                <CustomSelect
+                  value={praticaAtual}
+                  onChange={v => setPraticaAtual(String(v))}
+                  placeholder="Sem prática"
+                  options={praticas.map(p => ({ value: p.nome, label: p.nome }))}
+                />
               </div>
             </div>
             <div className="px-5 py-3.5 border-t border-slate-100 flex items-center justify-end gap-2.5">

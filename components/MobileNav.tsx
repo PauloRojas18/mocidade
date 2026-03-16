@@ -1,6 +1,7 @@
 // LOCALIZAÇÃO: components/MobileNav.tsx
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Users, CalendarCheck, BookOpen, MapPin, FileBarChart2 } from 'lucide-react'
 
@@ -21,9 +22,19 @@ export default function MobileNav() {
       <div className="flex items-center justify-between px-4 py-3 sticky top-0 z-10"
         style={{ background: '#1E2028', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center font-semibold text-xs text-white flex-shrink-0"
-            style={{ background: '#4B7BF5' }}>M</div>
-          <span className="text-sm font-semibold text-white">Mocidade</span>
+          <div
+            className="flex-shrink-0 flex items-center justify-center rounded-lg overflow-hidden"
+            style={{ width: 28, height: 28, background: '#ffffff' }}
+          >
+            <Image
+              src="/logo.png"
+              alt="Logo Mocidade"
+              width={24}
+              height={24}
+              style={{ objectFit: 'contain' }}
+              priority
+            />
+          </div>
         </div>
         <span className="text-xs font-medium px-2.5 py-1 rounded-full"
           style={{ background: 'rgba(75,123,245,0.2)', color: '#7FA4F8', fontSize: 10 }}>

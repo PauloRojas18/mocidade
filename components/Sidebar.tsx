@@ -1,17 +1,18 @@
 // LOCALIZAÇÃO: components/Sidebar.tsx
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { Users, CalendarCheck, BookOpen, MapPin, LayoutDashboard, FileBarChart2 } from 'lucide-react'
 import clsx from 'clsx'
 
 const links = [
-  { href: '/',           label: 'Inicio',  icon: LayoutDashboard },
-  { href: '/jovens',     label: 'Jovens',      icon: Users           },
-  { href: '/frequencia', label: 'Chamada',  icon: CalendarCheck   },
-  { href: '/cursos',     label: 'Cursos',      icon: BookOpen        },
-  { href: '/praticas',   label: 'Práticas',    icon: MapPin          },
-  { href: '/relatorios', label: 'Relatórios',  icon: FileBarChart2   },
+  { href: '/',           label: 'Inicio',     icon: LayoutDashboard },
+  { href: '/jovens',     label: 'Jovens',     icon: Users           },
+  { href: '/frequencia', label: 'Chamada',    icon: CalendarCheck   },
+  { href: '/cursos',     label: 'Cursos',     icon: BookOpen        },
+  { href: '/praticas',   label: 'Práticas',   icon: MapPin          },
+  { href: '/relatorios', label: 'Relatórios', icon: FileBarChart2   },
 ]
 
 export default function Sidebar() {
@@ -21,8 +22,20 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="px-4 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center font-semibold text-xs text-white flex-shrink-0"
-            style={{ background: '#4B7BF5' }}>M</div>
+          {/* Logo com fundo branco arredondado */}
+          <div
+            className="flex-shrink-0 flex items-center justify-center rounded-lg overflow-hidden"
+            style={{ width: 28, height: 28, background: '#ffffff' }}
+          >
+            <Image
+              src="/logo.png"
+              alt="Logo Mocidade"
+              width={24}
+              height={24}
+              style={{ objectFit: 'contain' }}
+              priority
+            />
+          </div>
           <div>
             <p className="text-xs font-semibold text-white leading-tight">Mocidade</p>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>Secretaria</p>
@@ -61,7 +74,7 @@ export default function Sidebar() {
             Semestre ativo
           </p>
           <p className="text-xs font-medium mt-0.5" style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>
-            1º sem / 2026  
+            1º sem / 2026
           </p>
         </div>
       </div>

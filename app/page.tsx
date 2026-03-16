@@ -70,7 +70,7 @@ export default function DashboardPage() {
       <div className="flex-shrink-0 px-5 md:px-6 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
         <div>
           <h1 className="text-sm font-semibold text-slate-900">Dashboard</h1>
-          <p className="text-xs text-slate-400 mt-0.5">1º semestre / </p>
+          <p className="text-xs text-slate-400 mt-0.5">1º semestre / 2026 </p>
         </div>
         <Link href="/frequencia" className="text-xs font-medium px-3 py-1.5 rounded-lg hover:opacity-90"
           style={{ background: '#4B7BF5', color: '#fff' }}>
@@ -111,7 +111,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl p-4" style={{ border: '0.5px solid #E2E8F0' }}>
             <p className="text-xs text-slate-400 mb-1">Com alertas</p>
             <p className="text-xl font-semibold" style={{ color: '#E24B4A' }}>{alertas.length}</p>
-            <p className="text-xs text-slate-400 mt-1">≥ 3 faltas</p>
+            <p className="text-xs text-slate-400 mt-1"> faltas</p>
           </div>
         </div>
 

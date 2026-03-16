@@ -2,10 +2,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-type Ctx = { params: { id: string } }
-
-export async function GET(_req: NextRequest, ctx: Ctx) {
-  const { id } = ctx.params
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
 
   const { data, error } = await supabase
     .from('aulas')
@@ -20,8 +21,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   return NextResponse.json(data)
 }
 
-export async function POST(req: NextRequest, ctx: Ctx) {
-  const { id } = ctx.params
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
   const { jovemId } = await req.json()
 
   const { error } = await supabase
@@ -38,8 +42,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   return NextResponse.json({ ok: true })
 }
 
-export async function DELETE(req: NextRequest, ctx: Ctx) {
-  const { id } = ctx.params
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
   const body = await req.json().catch(() => ({}))
   const { jovemId } = body
 

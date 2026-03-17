@@ -7,7 +7,7 @@ import { CustomSelect } from '@/components/CustomSelect'
 
 type Tab    = 'cursos' | 'praticas' | 'dia'
 type View   = 'lista'  | 'chamada'
-type Jovem  = { id: number; nome: string }
+type Jovem  = { id: number; nome: string; curso_atual?: string | null }  // + curso_atual
 type Curso  = { id: number; nome: string; color_idx: number }
 type Pratica = { id: number; nome: string; descricao: string | null; pratica_membros?: PraticaMembro[] }
 type PraticaMembro = { jovem_id: number; jovens: Jovem | null }
@@ -94,7 +94,7 @@ export default function FrequenciaPage() {
       praticasRes.forEach((p: Pratica) => {
         mp[p.id] = p.pratica_membros?.map((m: PraticaMembro) => m.jovens).filter((j): j is Jovem => j !== null) ?? []
       })
-    } 
+    }
     setMembrosPratica(mp)
 
     const jovensArr: Jovem[] = Array.isArray(jovensRes) ? jovensRes : []
@@ -108,6 +108,17 @@ export default function FrequenciaPage() {
   }, [hoje])
 
   useEffect(() => { void (async () => { await carregarDados() })() }, [carregarDados])
+
+  // Pré-seleciona alunos do curso ao escolher curso no modal
+  useEffect(() => {
+    if (!novoCursoId) { setAlunosSel([]); return }
+    const cursoSel = cursos.find(c => c.id === novoCursoId)
+    if (!cursoSel) return
+    const ids = todosJovens
+      .filter(j => j.curso_atual === cursoSel.nome)
+      .map(j => j.id)
+    setAlunosSel(ids)
+  }, [novoCursoId, cursos, todosJovens])
 
   // ── Helpers cursos ──────────────────────────────────────────────────────
   const abrirChamada = (aula: Aula) => {
@@ -145,7 +156,14 @@ export default function FrequenciaPage() {
     if (!cursoSel) return
     const res = await fetch('/api/aulas', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cursoNome: cursoSel.nome, data: novaData, descricao: novoDesc || 'Aula', colorIdx: cursoSel.color_idx ?? (aulas.length % COLORS.length), alunoIds: alunosSel }),
+      body: JSON.stringify({
+        cursoNome: cursoSel.nome,
+        data:      novaData,
+        descricao: novoDesc || 'Aula',
+        colorIdx:  cursoSel.color_idx ?? (aulas.length % COLORS.length),
+        alunoIds:  alunosSel,
+        semestre:  '1º sem / 2026',
+      }),
     })
     if (res.ok) {
       const atualizado: Aula[] = await fetch('/api/aulas').then(r => r.json())
@@ -359,6 +377,7 @@ export default function FrequenciaPage() {
                       descricao: 'Chamada de prática',
                       colorIdx:  praticas.findIndex(p => p.id === aulaAtivaP.id) % PRATICA_COLORS.length + 4,
                       alunoIds:  membros.map(m => m.id),
+                      semestre:  '1º sem / 2026',
                     }),
                   })
                   if (aulaRes.ok) {
@@ -420,7 +439,6 @@ export default function FrequenciaPage() {
         {/* ── CURSOS ── */}
         {aba === 'cursos' && (
           <>
-            {/* Modal nova aula */}
             {criando && (
               <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.45)' }} onClick={e => { if (e.target === e.currentTarget) setCriando(false) }}>
                 <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden" style={{ border: '0.5px solid #E2E8F0' }}>
@@ -455,7 +473,14 @@ export default function FrequenciaPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="text-xs font-medium text-slate-700 mb-2 block">Alunos</label>
+                      <label className="text-xs font-medium text-slate-700 mb-1.5 block">
+                        Alunos
+                        {novoCursoId && (
+                          <span className="ml-2 font-normal text-slate-400">
+                            ({alunosSel.length} selecionado{alunosSel.length !== 1 ? 's' : ''} automaticamente)
+                          </span>
+                        )}
+                      </label>
                       <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto rounded-lg border border-slate-100 p-1">
                         {todosJovens.map(j => {
                           const sel = alunosSel.includes(j.id)
@@ -468,9 +493,16 @@ export default function FrequenciaPage() {
                                   style={{ background: sel ? '#4B7BF5' : '#E2E8F0', color: sel ? '#fff' : '#64748B' }}>
                                   {j.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                                 </div>
-                                {j.nome}
+                                <span>{j.nome}</span>
                               </div>
-                              {sel && <Check size={13} strokeWidth={2.5} style={{ color: '#4B7BF5' }} />}
+                              <div className="flex items-center gap-1.5">
+                                {j.curso_atual === cursos.find(c => c.id === novoCursoId)?.nome && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#EEF2FF', color: '#4B7BF5', fontSize: 10 }}>
+                                    do curso
+                                  </span>
+                                )}
+                                {sel && <Check size={13} strokeWidth={2.5} style={{ color: '#4B7BF5' }} />}
+                              </div>
                             </button>
                           )
                         })}

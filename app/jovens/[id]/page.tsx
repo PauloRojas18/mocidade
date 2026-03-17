@@ -37,6 +37,8 @@ export default function JovemPage() {
   const [salvandoEdit, setSalvandoEdit] = useState(false)
   const [cursoEdit,    setCursoEdit]    = useState('')
   const [praticaEdit,  setPraticaEdit]  = useState('')
+  const [emailEdit,    setEmailEdit]    = useState('')
+  const [telefoneEdit, setTelefoneEdit] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -81,10 +83,16 @@ export default function JovemPage() {
     if (!jovem) return
     setCursoEdit(jovem.curso_atual ?? '')
     setPraticaEdit(jovem.pratica_atual ?? '')
+    setEmailEdit(jovem.email ?? '')        // + linha
+    setTelefoneEdit(jovem.telefone ?? '')  // + linha
     setEditando(true)
   }
 
-  const cancelarEdicao = () => { setEditando(false); setCursoEdit(''); setPraticaEdit('') }
+  const cancelarEdicao = () => {
+  setEditando(false)
+  setCursoEdit(''); setPraticaEdit('')
+  setEmailEdit(''); setTelefoneEdit('')  // + linha
+  }
 
   const salvarEdicao = async () => {
     if (!jovem) return
@@ -92,7 +100,12 @@ export default function JovemPage() {
     const res = await fetch(`/api/jovens/${jovem.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ curso_atual: cursoEdit || null, pratica_atual: praticaEdit || null }),
+      body: JSON.stringify({
+      curso_atual:   cursoEdit   || null,
+      pratica_atual: praticaEdit || null,
+      email:         emailEdit   || null,   // + linha
+      telefone:      telefoneEdit || null,  // + linha
+    }),
     })
     if (res.ok) {
       setJovem(await res.json() as Jovem)
@@ -235,6 +248,7 @@ export default function JovemPage() {
                     </button>
                   </div>
                 )}
+                
               </div>
               <div className="grid grid-cols-2 gap-3 p-4">
                 <div>
@@ -253,6 +267,36 @@ export default function JovemPage() {
                       options={praticas.map(p => ({ value: p.nome, label: p.nome }))} />
                   ) : (
                     <p className="text-sm font-medium text-slate-800">{jovem.pratica_atual ?? '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-1.5">E-mail</p>
+                  {editando ? (
+                    <input
+                      type="email"
+                      value={emailEdit}
+                      onChange={e => setEmailEdit(e.target.value)}
+                      placeholder="sem e-mail"
+                      className="w-full text-xs px-3 py-2 rounded-lg outline-none"
+                      style={{ border: '0.5px solid #CBD5E1', background: '#F8FAFC' }}
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-800">{jovem.email ?? '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 mb-1.5">Telefone</p>
+                  {editando ? (
+                    <input
+                      type="tel"
+                      value={telefoneEdit}
+                      onChange={e => setTelefoneEdit(e.target.value)}
+                      placeholder="sem telefone"
+                      className="w-full text-xs px-3 py-2 rounded-lg outline-none"
+                      style={{ border: '0.5px solid #CBD5E1', background: '#F8FAFC' }}
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-800">{jovem.telefone ?? '—'}</p>
                   )}
                 </div>
               </div>

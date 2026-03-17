@@ -66,7 +66,13 @@ export default function PraticasPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {praticas.map((p, i) => {
+            {[...praticas]
+              .sort(
+                (a, b) =>
+                  (b.pratica_membros?.length ?? 0) -
+                  (a.pratica_membros?.length ?? 0)
+              )
+              .map((p, i) => {
               const color = COLORS[i % COLORS.length]
 
               const alunos =
@@ -115,7 +121,10 @@ export default function PraticasPage() {
                     </div>
 
                     {alunos.length > 0 && (
-                      <div className="flex flex-col gap-1">
+                      <div className={`flex flex-col gap-1 ${
+                            alunos.length > 8 ? 'max-h-40 overflow-y-auto pr-1' : ''
+                          }`}
+                        >
                         {alunos.map(j => (
                           <Link
                             key={j.id}

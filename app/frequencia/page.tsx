@@ -26,7 +26,9 @@ const COLORS = [
 const PRATICA_COLORS = [
   { header: '#D4537E', light: '#FBEAF0', text: '#72243E', pill: '#F4C0D1' },
   { header: '#1D9E75', light: '#E1F5EE', text: '#085041', pill: '#9FE1CB' },
+  { header: '#378ADD', light: '#E6F1FB', text: '#0C447C', pill: '#85B7EB' },
   { header: '#BA7517', light: '#FAEEDA', text: '#633806', pill: '#FAC775' },
+  { header: '#594de1', light: '#EEEDFE', text: '#3C3489', pill: '#CECBF6' },
 ]
 
 export default function FrequenciaPage() {
@@ -92,7 +94,7 @@ export default function FrequenciaPage() {
       praticasRes.forEach((p: Pratica) => {
         mp[p.id] = p.pratica_membros?.map((m: PraticaMembro) => m.jovens).filter((j): j is Jovem => j !== null) ?? []
       })
-    }
+    } 
     setMembrosPratica(mp)
 
     const jovensArr: Jovem[] = Array.isArray(jovensRes) ? jovensRes : []
@@ -388,7 +390,7 @@ export default function FrequenciaPage() {
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">
       <div className="flex-shrink-0 px-4 md:px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
-        <div><span className="text-sm font-semibold text-slate-900">Frequência</span><p className="text-xs text-slate-400 mt-0.5">1º sem / 2025</p></div>
+        <div><span className="text-sm font-semibold text-slate-900">Frequência</span><p className="text-xs text-slate-400 mt-0.5">1º sem / 2026</p></div>
         <div className="flex items-center gap-2">
           {aba === 'cursos' && (
             <button onClick={() => setCriando(true)} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg hover:opacity-90" style={{ background: '#4B7BF5', color: '#fff' }}>
@@ -555,7 +557,9 @@ export default function FrequenciaPage() {
         {/* ── PRÁTICAS ── */}
         {aba === 'praticas' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {praticas.map((pratica, pi) => {
+            {[...praticas]
+              .sort((a, b) => (membrosPratica[b.id]?.length || 0) - (membrosPratica[a.id]?.length || 0))
+              .map((pratica, pi) => {
               const c           = PRATICA_COLORS[pi % PRATICA_COLORS.length]
               const membros     = membrosPratica[pratica.id] ?? []
               const isGerencP   = gerencP === pratica.id
@@ -650,7 +654,7 @@ export default function FrequenciaPage() {
               </button>
             </div>
 
-            <div className="bg-white rounded-2xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
+            <div className="bg-white rounded-2xl overflow-y-auto mb-4 max-h-[50vh]" style={{ border: '0.5px solid #E2E8F0' }}>
               {chamadaDia.map((jovem, i) => (
                 <button key={jovem.id}
                   onClick={() => setChamadaDia(prev => prev.map(j => j.id === jovem.id ? { ...j, presente: !j.presente } : j))}

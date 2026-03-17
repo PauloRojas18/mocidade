@@ -18,7 +18,11 @@ export async function GET() {
   if (e2) return NextResponse.json({ error: e2.message }, { status: 500 })
 
   // 3. Total de dias únicos com chamada realizada
-  const diasRealizados = new Set((chamada ?? []).map(r => r.data)).size
+const diasRealizados = new Set(
+  (chamada ?? [])
+    .filter(r => r.data)
+    .map(r => r.data)
+).size
 
   if (diasRealizados === 0) {
     return NextResponse.json(
@@ -29,10 +33,21 @@ export async function GET() {
   // 4. Agrupa presenças por jovem
   const map: Record<number, { total: number; presentes: number }> = {}
   for (const row of (chamada ?? [])) {
-    const id = row.jovem_id
-    if (!map[id]) map[id] = { total: 0, presentes: 0 }
-    map[id].total++
-    if (row.presente) map[id].presentes++
+
+  if (!row.jovem_id) continue
+
+  const id = row.jovem_id
+
+  if (!map[id]) {
+    map[id] = { total: 0, presentes: 0 }
+  }
+
+  map[id].total++
+
+  if (row.presente) {
+    map[id].presentes++
+  }
+
   }
 
   // 5. Preenche ausências implícitas para quem não foi registrado em algum dia

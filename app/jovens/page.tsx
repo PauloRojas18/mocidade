@@ -25,6 +25,18 @@ type ChamadaHoje = {
   presente: boolean
 }
 
+// Tipo para presenças retornadas pela API /api/presencas/jovem
+type PresencaAula = {
+  id: number
+  presente: boolean
+  aulas: {
+    id: number
+    curso_nome: string
+    data: string
+    descricao: string
+  } | null
+}
+
 export default function JovensPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
   const [cursos,    setCursos]    = useState<Curso[]>([])
@@ -37,8 +49,11 @@ export default function JovensPage() {
   const [freqMap,   setFreqMap]   = useState<Record<number, FreqJovem>>({})
   const [hojeMap,   setHojeMap]   = useState<Record<number, boolean>>({})  // presença de hoje
   const [selecionado,      setSelecionado]      = useState<Jovem | null>(null)
-  const [loadingPresencas, setLoadingPresencas] = useState(false)
   const [sheetAberto,      setSheetAberto]      = useState(false)
+
+  // Estados para as presenças detalhadas (aulas e práticas)
+  const [presencasDetalhe, setPresencasDetalhe] = useState<PresencaAula[]>([])
+  const [loadingPresencasDetalhe, setLoadingPresencasDetalhe] = useState(false)
 
   // Form
   const [nome,         setNome]         = useState('')
@@ -92,15 +107,32 @@ export default function JovensPage() {
     }).catch(() => setLoading(false))
   }, [hoje])
 
-  const selecionarJovem = (j: Jovem) => {
+  const selecionarJovem = async (j: Jovem) => {
     setSelecionado(j)
     setSheetAberto(true)
-    setLoadingPresencas(false)
+    setLoadingPresencasDetalhe(true)
+    try {
+      const res = await fetch(`/api/presencas/jovem?jovemId=${j.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        // A API pode retornar um objeto com a propriedade 'aulas' ou um array diretamente
+        const aulas = Array.isArray(data) ? data : (data.aulas || [])
+        setPresencasDetalhe(aulas)
+      } else {
+        setPresencasDetalhe([])
+      }
+    } catch (error) {
+      console.error('Erro ao buscar presenças:', error)
+      setPresencasDetalhe([])
+    } finally {
+      setLoadingPresencasDetalhe(false)
+    }
   }
 
   const fecharSheet = () => {
     setSheetAberto(false)
     setSelecionado(null)
+    setPresencasDetalhe([])
   }
 
   const fecharModal = () => {
@@ -143,6 +175,21 @@ export default function JovensPage() {
   // Presença de hoje do jovem selecionado
   const presenteHoje = selecionado ? hojeMap[selecionado.id] : undefined
   const foiRegistradoHoje = selecionado ? selecionado.id in hojeMap : false
+
+  // Função para agrupar presenças em cursos e práticas
+  const processarPresencas = (presencas: PresencaAula[]) => {
+    const cursos: Record<string, { nome: string; total: number; presentes: number; tipo: 'curso' | 'pratica' }> = {}
+    presencas.forEach(p => {
+      if (!p.aulas) return
+      const nome = p.aulas.curso_nome
+      const tipo: 'curso' | 'pratica' = p.aulas.descricao === 'Chamada de prática' ? 'pratica' : 'curso'
+      const key = nome + tipo
+      if (!cursos[key]) cursos[key] = { nome, total: 0, presentes: 0, tipo }
+      cursos[key].total++
+      if (p.presente) cursos[key].presentes++
+    })
+    return Object.values(cursos)
+  }
 
   // ── Painel de detalhe ─────────────────────────────────────────────────
   const detalheJSX = selecionado ? (
@@ -239,6 +286,60 @@ export default function JovensPage() {
             </div>
           )}
         </div>
+
+        {/* Presenças em aulas e práticas (lista individual) */}
+        {loadingPresencasDetalhe ? (
+          <div className="px-4 py-3 text-center">
+            <p className="text-xs text-slate-400">Carregando presenças...</p>
+          </div>
+        ) : presencasDetalhe.length > 0 ? (
+          <div className="px-4 py-3 border-t border-slate-100">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">
+              Presenças em aulas e práticas
+            </p>
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {presencasDetalhe
+                .filter(p => p.aulas) // ignora registros sem aula/prática
+                .sort((a, b) => (b.aulas?.data || '').localeCompare(a.aulas?.data || ''))
+                .map(p => {
+                  const data = p.aulas?.data ? new Date(p.aulas.data + 'T00:00') : null
+                  const dataStr = data
+                    ? data.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })
+                    : 'Data desconhecida'
+                  const tipo = p.aulas?.descricao === 'Chamada de prática' ? 'prática' : 'curso'
+                  return (
+                    <div key={p.id} className="flex items-center justify-between py-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-slate-700 truncate max-w-[100px]">{dataStr}</span>
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                          style={{
+                            background: tipo === 'prática' ? '#FBEAF0' : '#EEF2FF',
+                            color: tipo === 'prática' ? '#D4537E' : '#4B7BF5',
+                            fontSize: 10,
+                          }}
+                        >
+                          {tipo}
+                        </span>
+                        <span className="text-xs text-slate-500 truncate max-w-[80px]">
+                          {p.aulas?.curso_nome}
+                        </span>
+                      </div>
+                      <span
+                        className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ml-2"
+                        style={{
+                          background: p.presente ? '#E1F5EE' : '#FEF2F2',
+                          color: p.presente ? '#085041' : '#991B1B',
+                        }}
+                      >
+                        {p.presente ? 'Presente' : 'Ausente'}
+                      </span>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Botão */}

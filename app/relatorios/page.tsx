@@ -23,9 +23,15 @@ export default function RelatoriosPage() {
   const [jovens,    setJovens]    = useState<Jovem[]>([])
   const [cursos,    setCursos]    = useState<Curso[]>([])
   const [praticas,  setPraticas]  = useState<Pratica[]>([])
-  const [presencas, setPresencas] = useState<PresRow[]>([])  // aulas — freq por curso
-  const [freqDia,   setFreqDia]   = useState<FreqRow[]>([])  // chamada_dia — ranking
+  const [presencas, setPresencas] = useState<PresRow[]>([])
+  const [freqDia,   setFreqDia]   = useState<FreqRow[]>([])
   const [loading,   setLoading]   = useState(true)
+
+  // Referências para os dados (para usar no momento do salvamento)
+  const jovensRef = useRef<Jovem[]>([])
+  const cursosRef = useRef<Curso[]>([])
+  const praticasRef = useRef<Pratica[]>([])
+  const freqDiaRef = useRef<FreqRow[]>([])
 
   const [driveToken,    setDriveToken]    = useState<string | null>(null)
   const [salvandoDrive, setSalvandoDrive] = useState<string | null>(null)
@@ -39,13 +45,25 @@ export default function RelatoriosPage() {
       fetch('/api/cursos').then(r => r.json()),
       fetch('/api/praticas').then(r => r.json()),
       fetch('/api/presencas/relatorio').then(r => r.ok ? r.json() : []),
-      fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
+      fetch('/api/presencas/todas').then(r => r.json()),
     ]).then(([j, c, p, pr, fd]) => {
-      setJovens(Array.isArray(j) ? j : [])
-      setCursos(Array.isArray(c) ? c : [])
-      setPraticas(Array.isArray(p) ? p : [])
+      const jovensArray = Array.isArray(j) ? j : []
+      const cursosArray = Array.isArray(c) ? c : []
+      const praticasArray = Array.isArray(p) ? p : []
+      const freqDiaArray = Array.isArray(fd) ? fd : []
+      
+      setJovens(jovensArray)
+      setCursos(cursosArray)
+      setPraticas(praticasArray)
       setPresencas(Array.isArray(pr) ? pr : [])
-      setFreqDia(Array.isArray(fd) ? fd : [])
+      setFreqDia(freqDiaArray)
+      
+      // Atualizar refs
+      jovensRef.current = jovensArray
+      cursosRef.current = cursosArray
+      praticasRef.current = praticasArray
+      freqDiaRef.current = freqDiaArray
+      
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -75,49 +93,99 @@ export default function RelatoriosPage() {
   }, [])
 
   const buildCSV = (tipo: string): { csv: string; nome: string } => {
+    const jovensData = jovensRef.current
+    const cursosData = cursosRef.current
+    const praticasData = praticasRef.current
+    const freqDiaData = freqDiaRef.current
+    
     if (tipo === 'jovens') {
-      const rows = jovens.map(j => `"${j.nome}","${j.curso_atual ?? ''}"`).join('\n')
-      return { csv: `Nome,Curso\n${rows}`, nome: 'jovens' }
+      const headers = ['Nome', 'Curso']
+      const rows = jovensData.map(j => [
+        j.nome,
+        j.curso_atual ?? ''
+      ])
+      const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
+      return { csv, nome: `mocidade_jovens_${new Date().toISOString().split('T')[0]}` }
     }
-    if (tipo === 'cursos') {
-      const linhas: string[] = []
-      cursos.forEach(c => {
-        const alunos = jovens.filter(j => j.curso_atual === c.nome)
-        if (!alunos.length) linhas.push(`"${c.nome}","—"`)
-        else alunos.forEach(a => linhas.push(`"${c.nome}","${a.nome}"`))
+    
+    else if (tipo === 'cursos') {
+      const headers = ['Curso', 'Aluno']
+      const rows: string[][] = []
+      cursosData.forEach(c => {
+        const alunos = jovensData.filter(j => j.curso_atual === c.nome)
+        if (alunos.length === 0) {
+          rows.push([c.nome, '—'])
+        } else {
+          alunos.forEach(a => {
+            rows.push([c.nome, a.nome])
+          })
+        }
       })
-      return { csv: `Curso,Aluno\n${linhas.join('\n')}`, nome: 'cursos' }
+      const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
+      return { csv, nome: `mocidade_cursos_${new Date().toISOString().split('T')[0]}` }
     }
-    if (tipo === 'praticas') {
-      const linhas: string[] = []
-      praticas.forEach(p => {
+    
+    else if (tipo === 'praticas') {
+      const headers = ['Prática', 'Jovem']
+      const rows: string[][] = []
+      praticasData.forEach(p => {
         const membros = p.pratica_membros ?? []
-        if (!membros.length) linhas.push(`"${p.nome}","—"`)
-        else membros.forEach((m: { jovem_id: number }) => {
-          const j = jovens.find(x => x.id === m.jovem_id)
-          linhas.push(`"${p.nome}","${j?.nome ?? ''}"`)
-        })
+        if (membros.length === 0) {
+          rows.push([p.nome, '—'])
+        } else {
+          membros.forEach((m: { jovem_id: number }) => {
+            const j = jovensData.find(x => x.id === m.jovem_id)
+            rows.push([p.nome, j?.nome ?? ''])
+          })
+        }
       })
-      return { csv: `Prática,Jovem\n${linhas.join('\n')}`, nome: 'praticas' }
+      const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
+      return { csv, nome: `mocidade_praticas_${new Date().toISOString().split('T')[0]}` }
     }
-    // presencas — usa freqDia (chamada do dia)
-    const rows = jovens.map(j => {
-      const f = freqDia.find(r => r.jovem_id === j.id)
-      const pct = f && f.total > 0 ? Math.round((f.presentes / f.total) * 100) : 100
-      return `"${j.nome}","${j.curso_atual ?? ''}","${f?.presentes ?? 0}","${f?.total ?? 0}","${pct}%"`
-    }).join('\n')
-    return { csv: `Nome,Curso,Presenças,Total de Chamadas,Frequência\n${rows}`, nome: 'presencas' }
+    
+    else if (tipo === 'presencas') {
+      // Fallback (resumo) – não usado atualmente, pois 'presencas' é tratado via API
+      const headers = ['Nome', 'Curso', 'Presenças', 'Total Chamadas', 'Frequência']
+      const freqMap = new Map()
+      freqDiaData.forEach(f => freqMap.set(f.jovem_id, f))
+      const rows = jovensData.map(j => {
+        const f = freqMap.get(j.id)
+        const total = f?.total ?? 0
+        const presentes = f?.presentes ?? 0
+        const pct = total > 0 ? Math.round((presentes / total) * 100) : 0
+        return [
+          j.nome,
+          j.curso_atual ?? '',
+          presentes.toString(),
+          total.toString(),
+          `${pct}%`
+        ]
+      })
+      const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
+      return { csv, nome: `mocidade_frequencia_resumo_${new Date().toISOString().split('T')[0]}` }
+    }
+
+    return { csv: '', nome: '' }
   }
 
   const salvarNoDrive = async (tipo: string, token: string) => {
     setSalvandoDrive(tipo)
     try {
       const ano = new Date().getFullYear().toString()
+      
+      // 1. Obter ou criar a pasta do ano no Drive
       const searchRes = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=name='${ano}' and mimeType='application/vnd.google-apps.folder' and '${DRIVE_FOLDER_ID}' in parents and trashed=false&fields=files(id,name)`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
+      
+      if (!searchRes.ok) {
+        console.error('Erro ao acessar o Drive')
+        return
+      }
+      
       const searchData = await searchRes.json() as { files: { id: string; name: string }[] }
+      
       let pastaAnoId: string
       if (searchData.files.length > 0) {
         pastaAnoId = searchData.files[0].id
@@ -125,36 +193,71 @@ export default function RelatoriosPage() {
         const criarRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: ano, mimeType: 'application/vnd.google-apps.folder', parents: [DRIVE_FOLDER_ID] }),
+          body: JSON.stringify({ 
+            name: ano, 
+            mimeType: 'application/vnd.google-apps.folder', 
+            parents: [DRIVE_FOLDER_ID] 
+          }),
         })
+        
+        if (!criarRes.ok) {
+          console.error('Erro ao criar pasta no Drive')
+          return
+        }
+        
         const criarData = await criarRes.json() as { id: string }
         pastaAnoId = criarData.id
       }
-      const { csv, nome } = buildCSV(tipo)
-      const nomeArquivo = `mocidade_${nome}_${new Date().toISOString().split('T')[0]}.csv`
-      const boundary = '-------mocidade_boundary'
-      const metadata = JSON.stringify({ name: nomeArquivo, mimeType: 'text/csv', parents: [pastaAnoId] })
-      const body = [
-        `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', metadata,
-        `--${boundary}`, 'Content-Type: text/csv', '', csv, `--${boundary}--`,
-      ].join('\r\n')
+
+      // 2. Gerar o arquivo (dependendo do tipo)
+      let arquivoBlob: Blob
+      let nomeArquivo: string
+
+      if (tipo === 'presencas') {
+        // Para frequência completa, buscar da API de exportação (Excel detalhado)
+        const exportRes = await fetch('/api/exportar/presencas')
+        if (!exportRes.ok) throw new Error('Erro ao gerar relatório')
+        arquivoBlob = await exportRes.blob()
+        nomeArquivo = `mocidade_frequencia_completa_${new Date().toISOString().split('T')[0]}.xlsx`
+      } else {
+        // Para os demais tipos, gerar CSV localmente
+        const { csv, nome } = buildCSV(tipo)
+        arquivoBlob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+        nomeArquivo = `${nome}.csv`
+      }
+
+      // 3. Fazer upload para o Drive
+      const formData = new FormData()
+      formData.append('metadata', new Blob([JSON.stringify({
+        name: nomeArquivo,
+        parents: [pastaAnoId]
+      })], { type: 'application/json' }))
+      formData.append('file', arquivoBlob)
+
       const res = await fetch(
         'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
-        { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body }
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        }
       )
+
       if (res.ok) {
         const data = await res.json() as { id: string; webViewLink: string }
         setSavedDrive(prev => ({ ...prev, [tipo]: data.webViewLink }))
+        // Sem alert, apenas sucesso silencioso
       } else {
-        const err = await res.json() as { error?: { message?: string } }
         if (res.status === 401) {
           setDriveToken(null)
           pendingExportRef.current = tipo
           tokenClientRef.current?.requestAccessToken()
         } else {
-          alert('Erro ao salvar no Drive: ' + (err.error?.message ?? 'tente novamente'))
+          console.error('Erro no upload:', await res.text())
         }
       }
+    } catch (error) {
+      console.error('Erro ao salvar no Drive:', error)
     } finally {
       setSalvandoDrive(null)
     }
@@ -162,7 +265,10 @@ export default function RelatoriosPage() {
 
   const handleSalvarDrive = (tipo: string) => {
     if (driveToken) salvarNoDrive(tipo, driveToken)
-    else { pendingExportRef.current = tipo; tokenClientRef.current?.requestAccessToken() }
+    else { 
+      pendingExportRef.current = tipo
+      tokenClientRef.current?.requestAccessToken()
+    }
   }
 
   if (loading) return (
@@ -173,7 +279,6 @@ export default function RelatoriosPage() {
 
   const totalMembros = praticas.reduce((a, p) => a + (p.pratica_membros?.length ?? 0), 0)
 
-  // Frequência por curso (tabela presencas — aulas)
   const freqCursoMap: Record<string, { t: number; p: number }> = {}
   presencas.forEach(p => {
     const n = p.aulas?.curso_nome
@@ -183,20 +288,18 @@ export default function RelatoriosPage() {
     if (p.presente) freqCursoMap[n].p++
   })
 
-  // Ranking — usa chamada_dia (freqDia) igual à jovens/page.tsx
   const ranking = jovens
     .map(j => {
       const f      = freqDia.find(r => r.jovem_id === j.id)
       const total  = f?.total     ?? 0
       const pres   = f?.presentes ?? 0
       const faltas = total - pres
-      const pct    = total > 0 ? Math.round((pres / total) * 100) : 100
+      const pct    = total > 0 ? Math.round((pres / total) * 100) : 0
       return { ...j, pct, faltas, total }
     })
-    .filter(j => j.total > 0)          // só quem tem registro
+    .filter(j => j.total > 0)
     .sort((a, b) => b.pct - a.pct)
 
-  // Cards de alerta
   const comAlerta  = ranking.filter(j => j.pct < 75).length
   const semFaltas  = ranking.filter(j => j.faltas === 0 && j.total > 0).length
 
@@ -215,7 +318,6 @@ export default function RelatoriosPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-5">
-
         {/* Resumo */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           {[
@@ -339,7 +441,7 @@ export default function RelatoriosPage() {
             )}
           </div>
 
-          {/* Ranking — baseado na chamada do dia */}
+          {/* Ranking */}
           <div className="bg-white rounded-xl overflow-hidden" style={{ border: '0.5px solid #E2E8F0' }}>
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-800">Ranking de frequência</p>

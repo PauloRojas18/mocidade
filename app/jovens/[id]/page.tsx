@@ -18,6 +18,17 @@ type Curso          = { id: number; nome: string }
 type Pratica        = { id: number; nome: string }
 type FreqRow        = { jovem_id: number; total: number; presentes: number }
 
+// Tipo para presenças retornadas pela API /api/presencas-praticas
+type PresencaPratica = {
+  id: number
+  presente: boolean
+  data: string
+  jovem_id: number
+  pratica_id: number
+  jovem_nome: string
+  pratica_nome: string
+}
+
 export default function JovemPage() {
   const params = useParams()
   const id = params?.id as string
@@ -42,56 +53,102 @@ export default function JovemPage() {
 
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      fetch(`/api/jovens/${id}`).then(r => r.ok ? r.json() : null),
-      fetch('/api/jovens').then(r => r.json()),
-      fetch(`/api/presencas/jovem?jovemId=${id}`).then(r => r.ok ? r.json() : { aulas: [] }),
-      fetch('/api/cursos').then(r => r.json()),
-      fetch('/api/praticas').then(r => r.json()),
-      fetch('/api/presencas/todas').then(r => r.ok ? r.json() : []),
-      fetch(`/api/chamada-dia?jovemId=${id}`).then(r => r.ok ? r.json() : []),
-    ]).then(([j, todos, presData, c, p, todasPres, diasJovem]) => {
-      if (!j) { setNaoEncontrado(true); setLoading(false); return }
-      setJovem(j)
-      setTodosJovens(Array.isArray(todos) ? todos : [])
-      setCursos(Array.isArray(c) ? c : [])
-      setPraticas(Array.isArray(p) ? p : [])
 
-      if (Array.isArray(presData)) {
-        setPresencas(presData)
-      } else {
-        setPresencas(Array.isArray(presData.aulas) ? presData.aulas : [])
+    const fetchData = async () => {
+      try {
+        // Buscar dados do jovem
+        const jovemRes = await fetch(`/api/jovens/${id}`)
+        if (!jovemRes.ok) {
+          setNaoEncontrado(true)
+          setLoading(false)
+          return
+        }
+        const jovemData = await jovemRes.json()
+        setJovem(jovemData)
+
+        // Buscar todos os jovens (sidebar)
+        const todosRes = await fetch('/api/jovens')
+        const todosData = await todosRes.json()
+        setTodosJovens(Array.isArray(todosData) ? todosData : [])
+
+        // Buscar presenças em aulas
+        const aulasRes = await fetch(`/api/presencas/jovem?jovemId=${id}`)
+        let aulasData: PresencaAula[] = []
+        if (aulasRes.ok) {
+          const data = await aulasRes.json()
+          aulasData = Array.isArray(data) ? data : (data.aulas || [])
+        }
+
+        // Buscar presenças em práticas
+        const praticasRes = await fetch(`/api/presencas-praticas?jovemId=${id}`)
+        let praticasData: PresencaPratica[] = []
+        if (praticasRes.ok) {
+          praticasData = await praticasRes.json()
+        }
+
+        // Converter práticas para o formato PresencaAula
+        const praticasConvertidas: PresencaAula[] = praticasData.map(p => ({
+          id: p.id,
+          presente: p.presente,
+          aulas: {
+            id: p.pratica_id,
+            curso_nome: p.pratica_nome,
+            data: p.data,
+            descricao: 'Chamada de prática'
+          }
+        }))
+
+        // Combinar aulas e práticas
+        setPresencas([...aulasData, ...praticasConvertidas])
+
+        // Buscar cursos e práticas (para selects de edição)
+        const cursosRes = await fetch('/api/cursos')
+        const cursosData = await cursosRes.json()
+        setCursos(Array.isArray(cursosData) ? cursosData : [])
+
+        const praticasListRes = await fetch('/api/praticas')
+        const praticasListData = await praticasListRes.json()
+        setPraticas(Array.isArray(praticasListData) ? praticasListData : [])
+
+        // Buscar frequência global
+        const todasPresRes = await fetch('/api/presencas/todas')
+        if (todasPresRes.ok) {
+          const todasPresData = await todasPresRes.json()
+          const meuRow = todasPresData.find((r: FreqRow) => r.jovem_id === Number(id))
+          setTotalGlobal(meuRow?.total ?? 0)
+          setPresentesGlobal(meuRow?.presentes ?? 0)
+        }
+
+        // Buscar chamada do dia do jovem
+        const chamadaRes = await fetch(`/api/chamada-dia?jovemId=${id}`)
+        if (chamadaRes.ok) {
+          const chamadaData = await chamadaRes.json()
+          setChamadaDia(Array.isArray(chamadaData) ? chamadaData.sort((a, b) => b.data.localeCompare(a.data)) : [])
+        }
+
+        setLoading(false)
+      } catch (error) {
+        console.error('Erro ao carregar dados:', error)
+        setLoading(false)
       }
+    }
 
-      const dias: ChamadaDiaItem[] = Array.isArray(diasJovem)
-        ? diasJovem.sort((a: ChamadaDiaItem, b: ChamadaDiaItem) => b.data.localeCompare(a.data))
-        : []
-      setChamadaDia(dias)
-
-      // Frequência baseada na chamada do dia (igual à jovens/page.tsx)
-      if (Array.isArray(todasPres)) {
-        const meuRow = todasPres.find((r: FreqRow) => r.jovem_id === Number(id))
-        setTotalGlobal(meuRow?.total ?? 0)
-        setPresentesGlobal(meuRow?.presentes ?? 0)
-      }
-
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    fetchData()
   }, [id])
 
   const abrirEdicao = () => {
     if (!jovem) return
     setCursoEdit(jovem.curso_atual ?? '')
     setPraticaEdit(jovem.pratica_atual ?? '')
-    setEmailEdit(jovem.email ?? '')        // + linha
-    setTelefoneEdit(jovem.telefone ?? '')  // + linha
+    setEmailEdit(jovem.email ?? '')
+    setTelefoneEdit(jovem.telefone ?? '')
     setEditando(true)
   }
 
   const cancelarEdicao = () => {
-  setEditando(false)
-  setCursoEdit(''); setPraticaEdit('')
-  setEmailEdit(''); setTelefoneEdit('')  // + linha
+    setEditando(false)
+    setCursoEdit(''); setPraticaEdit('')
+    setEmailEdit(''); setTelefoneEdit('')
   }
 
   const salvarEdicao = async () => {
@@ -101,11 +158,11 @@ export default function JovemPage() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-      curso_atual:   cursoEdit   || null,
-      pratica_atual: praticaEdit || null,
-      email:         emailEdit   || null,   // + linha
-      telefone:      telefoneEdit || null,  // + linha
-    }),
+        curso_atual:   cursoEdit   || null,
+        pratica_atual: praticaEdit || null,
+        email:         emailEdit   || null,
+        telefone:      telefoneEdit || null,
+      }),
     })
     if (res.ok) {
       setJovem(await res.json() as Jovem)
@@ -127,11 +184,11 @@ export default function JovemPage() {
 
   const initials = jovem.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')
 
-  // Frequência da chamada do dia — igual à jovens/page.tsx
+  // Frequência da chamada do dia
   const freqPct   = totalGlobal > 0 ? Math.round((presentesGlobal / totalGlobal) * 100) : 100
   const temAlerta = totalGlobal > 0 && freqPct < 75
 
-  // Presenças em aulas (para seção separada)
+  // Presenças em aulas e práticas (agora já mescladas no estado `presencas`)
   const totalAulas = presencas.length
   const porCurso: Record<string, { nome: string; total: number; presentes: number; tipo: 'curso' | 'pratica' }> = {}
   presencas.forEach(p => {
@@ -145,7 +202,6 @@ export default function JovemPage() {
   })
 
   const presentesDia = chamadaDia.filter(c => c.presente).length
-
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">
       <div className="flex-shrink-0 px-4 md:px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between">
@@ -248,7 +304,6 @@ export default function JovemPage() {
                     </button>
                   </div>
                 )}
-                
               </div>
               <div className="grid grid-cols-2 gap-3 p-4">
                 <div>
@@ -302,6 +357,58 @@ export default function JovemPage() {
               </div>
             </div>
 
+            {/* Presenças em aulas e práticas (lista individual) */}
+            {presencas.length > 0 && (
+              <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Presenças em aulas e práticas
+                  </p>
+                </div>
+                <div className="divide-y divide-slate-50 overflow-y-auto" style={{ maxHeight: 240 }}>
+                  {presencas
+                    .filter(p => p.aulas)
+                    .sort((a, b) => (b.aulas?.data || '').localeCompare(a.aulas?.data || ''))
+                    .map(p => {
+                      const data = p.aulas?.data ? new Date(p.aulas.data + 'T00:00') : null
+                      const dataStr = data
+                        ? data.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' })
+                        : 'Data desconhecida'
+                      const tipo = p.aulas?.descricao === 'Chamada de prática' ? 'prática' : 'curso'
+                      return (
+                        <div key={p.id} className="flex items-center justify-between px-4 py-2.5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs text-slate-700 truncate max-w-[100px]">{dataStr}</span>
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                              style={{
+                                background: tipo === 'prática' ? '#FBEAF0' : '#EEF2FF',
+                                color: tipo === 'prática' ? '#D4537E' : '#4B7BF5',
+                                fontSize: 10,
+                              }}
+                            >
+                              {tipo}
+                            </span>
+                            <span className="text-xs text-slate-500 truncate max-w-[120px]">
+                              {p.aulas?.curso_nome}
+                            </span>
+                          </div>
+                          <span
+                            className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ml-2"
+                            style={{
+                              background: p.presente ? '#E1F5EE' : '#FEF2F2',
+                              color: p.presente ? '#085041' : '#991B1B',
+                            }}
+                          >
+                            {p.presente ? 'Presente' : 'Ausente'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* Chamada do dia */}
             <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
@@ -336,45 +443,6 @@ export default function JovemPage() {
                 </div>
               )}
             </div>
-
-            {/* Presenças em aulas — só mostra se houver dados */}
-            {totalAulas > 0 && (
-              <div className="bg-white rounded-xl overflow-hidden mb-4" style={{ border: '0.5px solid #E2E8F0' }}>
-                <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Presenças em aulas</p>
-                </div>
-                {Object.values(porCurso).map((c, i) => {
-                  const pct = Math.round((c.presentes / c.total) * 100)
-                  return (
-                    <div key={c.nome + c.tipo} className="px-4 py-2.5"
-                      style={{ borderBottom: i < Object.values(porCurso).length - 1 ? '0.5px solid #F8FAFC' : 'none' }}>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-xs font-medium text-slate-800 truncate">{c.nome}</p>
-                            <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-                              style={{ background: c.tipo === 'pratica' ? '#FBEAF0' : '#EEF2FF', color: c.tipo === 'pratica' ? '#D4537E' : '#4B7BF5', fontSize: 10 }}>
-                              {c.tipo === 'pratica' ? 'prática' : 'curso'}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-400 mt-0.5">{c.total} chamada{c.total !== 1 ? 's' : ''}</p>
-                        </div>
-                        <span className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: pct < 75 ? '#FCEBEB' : '#EAF3DE', color: pct < 75 ? '#A32D2D' : '#2D6A0F' }}>
-                          {pct < 75 ? 'em risco' : 'ok'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: '#F1F5F9' }}>
-                          <div className="h-full rounded-full" style={{ background: pct < 75 ? '#E24B4A' : '#1D9E75', width: `${pct}%` }} />
-                        </div>
-                        <span className="text-xs flex-shrink-0" style={{ color: pct < 75 ? '#E24B4A' : '#1D9E75' }}>{c.presentes}/{c.total}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
 
             {/* Ações */}
             <div className="flex gap-2">

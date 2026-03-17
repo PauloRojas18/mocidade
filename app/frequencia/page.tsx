@@ -368,31 +368,39 @@ export default function FrequenciaPage() {
                 disabled={salvandoP}
                 onClick={async () => {
                   setSalvandoP(true)
+                  
+                  // CORREÇÃO: Salvar diretamente em presencas_praticas, não criar aula
                   const dataHojeISO = new Date().toISOString().split('T')[0]
-                  const aulaRes = await fetch('/api/aulas', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      cursoNome: aulaAtivaP.nome,
-                      data:      dataHojeISO,
-                      descricao: 'Chamada de prática',
-                      colorIdx:  praticas.findIndex(p => p.id === aulaAtivaP.id) % PRATICA_COLORS.length + 4,
-                      alunoIds:  membros.map(m => m.id),
-                      semestre:  '1º sem / 2026',
-                    }),
+                  const pratica = aulaAtivaP
+                  const membros = membrosPratica[pratica.id] ?? []
+                  
+                  // Criar array de presenças
+                  const presencasToSave = membros.map(m => ({
+                    praticaId: pratica.id,
+                    jovemId: m.id,
+                    presente: presencasP[m.id] ?? false,
+                    data: dataHojeISO
+                  }))
+
+                  // Enviar para a API correta
+                  const res = await fetch('/api/presencas-praticas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ presencas: presencasToSave })
                   })
-                  if (aulaRes.ok) {
-                    const aula = await aulaRes.json() as { id: number }
-                    await fetch('/api/presencas', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        aulaId: aula.id,
-                        presencas: membros.map(m => ({ jovemId: m.id, presente: presencasP[m.id] ?? false })),
-                      }),
-                    })
-                  }
+
                   setSalvandoP(false)
-                  setSalvouP(true)
-                  setTimeout(() => { setViewP('lista'); setAulaAtivaP(null) }, 1400)
+                  
+                  if (res.ok) {
+                    setSalvouP(true)
+                    setTimeout(() => { 
+                      setViewP('lista'); 
+                      setAulaAtivaP(null) 
+                    }, 1400)
+                  } else {
+                    const err = await res.json() as { error?: string }
+                    alert('Erro ao salvar: ' + (err.error ?? 'tente novamente'))
+                  }
                 }}
                 className="w-full py-3.5 rounded-2xl text-white text-sm font-semibold hover:opacity-90"
                 style={{ background: c.header, opacity: salvandoP ? 0.7 : 1 }}>
@@ -462,14 +470,27 @@ export default function FrequenciaPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-xs font-medium text-slate-700 mb-1.5 block">Data</label>
-                        <input type="date" value={novaData} onChange={e => setNovaData(e.target.value)}
-                          className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-400" style={{ color: '#1A2340' }} />
+                        <label className="text-xs font-medium text-slate-700 mb-1.5 block">
+                          Data da Aula <span className="text-amber-600">*</span>
+                        </label>
+                        <input 
+                          type="date" 
+                          value={novaData} 
+                          onChange={e => setNovaData(e.target.value)}
+                          className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-400" 
+                          style={{ color: '#1A2340' }} 
+                        />
+                        <p className="text-xs text-slate-400 mt-1">Data em que a aula será ministrada</p>
                       </div>
                       <div>
                         <label className="text-xs font-medium text-slate-700 mb-1.5 block">Descrição</label>
-                        <input value={novoDesc} onChange={e => setNovoDesc(e.target.value)} placeholder="Ex: Aula 3"
-                          className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-400" style={{ color: '#1A2340' }} />
+                        <input 
+                          value={novoDesc} 
+                          onChange={e => setNovoDesc(e.target.value)} 
+                          placeholder="Ex: Aula 3"
+                          className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white outline-none focus:border-blue-400" 
+                          style={{ color: '#1A2340' }} 
+                        />
                       </div>
                     </div>
                     <div>

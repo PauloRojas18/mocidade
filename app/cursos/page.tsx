@@ -88,7 +88,10 @@ export default function CursosPage() {
                       </span>
                     </div>
                     {alunos.length > 0 && (
-                      <div className="flex flex-col gap-1">
+                      <div className={`flex flex-col gap-1 ${
+                            alunos.length > 10 ? 'max-h-80 overflow-y-auto pr-1' : ''
+                          }`}
+                        >
                         {alunos.map(j => (
                           <Link key={j.id} href={`/jovens/${j.id}`} className="flex items-center gap-2 py-1 rounded-lg px-1 hover:bg-slate-50 transition-colors" style={{ textDecoration: 'none' }}>
                             <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0" style={{ background: color.light, color: color.text, fontSize: 9 }}>

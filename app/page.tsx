@@ -70,7 +70,7 @@ export default function DashboardPage() {
 
   const totalMembros = praticas.reduce((a, p) => a + (p.pratica_membros?.length ?? 0), 0)
   const CURSO_COLORS   = ['#4B7BF5', '#7F77DD', '#1D9E75', '#BA7517']
-  const PRATICA_COLORS = ['#D4537E', '#BA7517']
+  const PRATICA_COLORS = ['#D4537E', '#BA7517','#1D9E75','#594de1','#378ADD']
 
   return (
     <div className="flex flex-col h-full md:h-screen overflow-hidden">

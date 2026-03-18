@@ -411,20 +411,55 @@ export default function JovensPage() {
                 <button key={j.id} onClick={() => selecionarJovem(j)} className="w-full text-left">
                   <div className="bg-white rounded-xl p-3 transition-all"
                     style={{
-                      borderTop:    ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
-                      borderRight:  ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
-                      borderBottom: ativo ? '1.5px solid #4B7BF5' : '0.5px solid #E2E8F0',
-                      borderLeft:   temFalta ? '3px solid #E24B4A' : ativo ? '3px solid #4B7BF5' : '3px solid #E2E8F0',
+                      borderTop: (temFalta && ativo)
+                        ? '1.5px solid #E24B4A'
+                        : ativo
+                        ? '1.5px solid #4B7BF5'
+                        : '0.5px solid #E2E8F0',
+
+                      borderRight: (temFalta && ativo)
+                        ? '1.5px solid #E24B4A'
+                        : ativo
+                        ? '1.5px solid #4B7BF5'
+                        : '0.5px solid #E2E8F0',
+
+                      borderBottom: (temFalta && ativo)
+                        ? '1.5px solid #E24B4A'
+                        : ativo
+                        ? '1.5px solid #4B7BF5'
+                        : '0.5px solid #E2E8F0',
+
+                      borderLeft: temFalta
+                        ? '3px solid #E24B4A'
+                        : ativo
+                        ? '3px solid #4B7BF5'
+                        : '3px solid #4B7BF5',
+
                       borderRadius: '0 10px 10px 0',
-                      background:   ativo ? '#F5F8FF' : '#fff',
+
+                      background: ativo ? '#F5F8FF' : '#fff',
                     }}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                          style={{
-                            background: temFalta ? '#FCEBEB' : ativo ? '#4B7BF5' : '#EEF2FF',
-                            color:      temFalta ? '#A32D2D' : ativo ? '#fff'    : '#4B7BF5',
-                          }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+                        style={{
+                          background: temFalta
+                            ? ativo
+                              ? '#E24B4A'
+                              : '#FCEBEB'
+                            : ativo
+                            ? '#4B7BF5'
+                            : '#EEF2FF',
+
+                          color: temFalta
+                            ? ativo
+                              ? '#fff'
+                              : '#A32D2D'
+                            : ativo
+                            ? '#fff'
+                            : '#4B7BF5',
+                        }}
+                      >
                           {j.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                         </div>
                         <div className="min-w-0">

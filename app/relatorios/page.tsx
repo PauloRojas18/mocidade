@@ -302,7 +302,7 @@ export default function RelatoriosPage() {
 
   const comAlerta  = ranking.filter(j => j.pct < 75).length
   const semFaltas  = ranking.filter(j => j.faltas === 0 && j.total > 0).length
-
+    
   const exportacoes = [
     { tipo: 'jovens',    titulo: 'Lista de jovens',    descricao: `${jovens.length} jovens`,   href: '/api/exportar/jovens',    cor: '#4B7BF5', bg: '#EEF2FF' },
     { tipo: 'cursos',    titulo: 'Lista por curso',     descricao: `${cursos.length} cursos`,   href: '/api/exportar/cursos',    cor: '#1D9E75', bg: '#E1F5EE' },

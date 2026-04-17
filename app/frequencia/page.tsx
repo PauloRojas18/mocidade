@@ -622,7 +622,7 @@ export default function FrequenciaPage() {
                   <div className="p-4" style={{ background: c.header }}>
                     <p className="text-sm font-bold text-white">{pratica.nome}</p>
                     <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.65)' }}>{pratica.descricao}</p>
-                    <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.65)' }}>{membros.length} jovem{membros.length !== 1 ? 's' : ''}</p>
+                    <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.65)' }}>{membros.length} {membros.length !== 1 ? 'jovens' : 'Jovem'}</p>
                   </div>
                   <div className="px-3.5 pt-3 pb-1 min-h-12">
                     <div className="flex flex-wrap gap-1.5">

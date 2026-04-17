@@ -4,13 +4,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-type Jovem = { id: number; nome: string }
+type n = { id: number; nome: string }
 
 type Pratica = {
   id: number
   nome: string
   descricao: string | null
-  pratica_membros?: { jovem_id: number; jovens: Jovem }[]
+  pratica_membros?: { n_id: number; jovens: n }[]
 }
 
 const COLORS = [
@@ -115,8 +115,7 @@ export default function PraticasPage() {
                           color: color.text
                         }}
                       >
-                        {alunos.length} jovem
-                        {alunos.length !== 1 ? 's' : ''}
+                        {alunos.length} {alunos.length !== 1? 'jovens' : 'Jovem'}
                       </span>
                     </div>
 
